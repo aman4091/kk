@@ -52,16 +52,16 @@ class YouTubeChannelProcessor:
         """
         Detect if URL is a YouTube channel URL.
         Matches:
-        - youtube.com/@username
+        - youtube.com/@username or www.youtube.com/@username
         - youtube.com/c/channelname
         - youtube.com/channel/UCxxxxxxx
         - youtube.com/user/username
         """
         channel_patterns = [
-            r'youtube\.com/@[\w-]+',
-            r'youtube\.com/c/[\w-]+',
-            r'youtube\.com/channel/UC[\w-]+',
-            r'youtube\.com/user/[\w-]+'
+            r'(?:www\.)?youtube\.com/@[\w-]+',
+            r'(?:www\.)?youtube\.com/c/[\w-]+',
+            r'(?:www\.)?youtube\.com/channel/UC[\w-]+',
+            r'(?:www\.)?youtube\.com/user/[\w-]+'
         ]
         return any(re.search(pattern, url, re.IGNORECASE) for pattern in channel_patterns)
 
@@ -70,11 +70,11 @@ class YouTubeChannelProcessor:
         """
         Detect if URL is a YouTube video URL.
         Matches:
-        - youtube.com/watch?v=xxxxx
+        - youtube.com/watch?v=xxxxx or www.youtube.com/watch?v=xxxxx
         - youtu.be/xxxxx
         """
         video_patterns = [
-            r'youtube\.com/watch\?v=[\w-]+',
+            r'(?:www\.)?youtube\.com/watch\?v=[\w-]+',
             r'youtu\.be/[\w-]+'
         ]
         return any(re.search(pattern, url, re.IGNORECASE) for pattern in video_patterns)
