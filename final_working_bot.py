@@ -3986,11 +3986,17 @@ class WorkingF5Bot:
             if script_text.startswith('/'):
                 return
 
-            # Check for YouTube links
+            # Check for YouTube links (both videos AND channels)
             youtube_patterns = [
+                # Video patterns
                 r'(?:https?://)?(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/)',
-                r'youtube\.com/watch\?v=',
-                r'youtu\.be/'
+                r'(?:www\.)?youtube\.com/watch\?v=',
+                r'youtu\.be/',
+                # Channel patterns
+                r'(?:www\.)?youtube\.com/@[\w-]+',
+                r'(?:www\.)?youtube\.com/c/[\w-]+',
+                r'(?:www\.)?youtube\.com/channel/UC[\w-]+',
+                r'(?:www\.)?youtube\.com/user/[\w-]+'
             ]
 
             # Extract all YouTube links from the message
