@@ -1,0 +1,31 @@
+# New Dependencies for YouTube Channel Automation Feature
+# Add these to your existing environment
+
+# Supabase client
+supabase>=2.0.0
+
+# YouTube Data API v3
+google-api-python-client>=2.108.0
+
+# HTTP client for async Supadata API calls
+httpx>=0.24.0
+
+# ISO 8601 duration parsing for YouTube videos
+isodate>=0.6.1
+
+# ============================================================
+# EXISTING DEPENDENCIES (already in auto_setup_and_run_bot.py)
+# ============================================================
+# python-telegram-bot
+# requests
+# openai-whisper
+# soundfile
+# librosa
+# yt-dlp
+# python-dotenv
+# feedparser
+# pytz==2023.3
+# google-auth-oauthlib==1.2.0
+# google-auth-httplib2==0.2.0
+# torch
+# torchaudio

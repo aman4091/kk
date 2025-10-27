@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(python3:*)",
+      "Read(//e/FINAL/f5-automation/**)",
+      "Read(//c/Users/aaman/.config/**)",
+      "Read(//c/Users/aaman/**)",
+      "Read(//d/am/Script/**)",
+      "Bash(python apply_message_handler_patch.py:*)",
+      "Bash(python:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
