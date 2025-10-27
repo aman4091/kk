@@ -4072,45 +4072,6 @@ class WorkingF5Bot:
                         else:
                             await update.message.reply_text(error_msg)
 
-                                await update.message.reply_text(error_msg)
-
-                    elif self.youtube_processor.is_youtube_video_url(youtube_url):
-                        # Video URL detected - process as reference audio
-                        msg_text = (
-                            f"🔗 YouTube video detected!\n\n"
-                            f"📺 URL: {youtube_url[:50]}{'...' if len(youtube_url) > 50 else ''}\n\n"
-                            f"🎵 Automatically processing as Reference Audio...\n"
-                            f"📥 Extracting audio → Cropping to 30s → Setting as voice reference"
-                        )
-
-                        try:
-                            if is_channel:
-                                await context.bot.send_message(
-                                    chat_id=chat_id,
-                                    text=msg_text
-                                )
-                            else:
-                                await update.message.reply_text(msg_text)
-
-                            # Automatically extract audio as reference
-                            print(f"🎵 Auto-processing YouTube video as Reference Audio: {youtube_url}")
-                            await self.extract_youtube_audio_as_reference(youtube_url, update, context)
-
-                        except Exception as e:
-                            print(f"Error processing YouTube video: {e}")
-                            error_msg = f"❌ Failed to process YouTube video: {str(e)[:100]}"
-                            if is_channel:
-                                await context.bot.send_message(chat_id=chat_id, text=error_msg)
-                            else:
-                                await update.message.reply_text(error_msg)
-                    else:
-                        # Unknown YouTube URL format
-                        error_msg = "⚠️ Could not determine if this is a channel or video URL"
-                        if is_channel:
-                            await context.bot.send_message(chat_id=chat_id, text=error_msg)
-                        else:
-                            await update.message.reply_text(error_msg)
-
             else:
                 await self.process_text(script_text, update, context)
             
