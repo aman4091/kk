@@ -2046,8 +2046,19 @@ class WorkingF5Bot:
         """
         chat_id = update.effective_chat.id
 
+        # Helper function to send messages (handles both direct messages and channels)
+        async def send_message(text, parse_mode=None):
+            """Send message that works for both channels and direct messages"""
+            try:
+                if update.message:
+                    await update.message.reply_text(text, parse_mode=parse_mode)
+                else:
+                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+            except Exception as e:
+                print(f"Error sending message: {e}")
+
         try:
-            await update.message.reply_text(
+            await send_message(
                 "🔍 **YouTube Channel Detected!**\n\n"
                 "📊 Starting channel processing...",
                 parse_mode="Markdown"
@@ -2061,33 +2072,33 @@ class WorkingF5Bot:
                     if yt_key:
                         self.youtube_processor.set_api_key(yt_key)
                     else:
-                        await update.message.reply_text(
+                        await send_message(
                             "❌ No YouTube API key found!\n\n"
                             "Use /set_youtube_key to add one."
                         )
                         return
                 else:
-                    await update.message.reply_text(
+                    await send_message(
                         "❌ Supabase not connected!\n\n"
                         "Use /set_supabase_url and /set_supabase_key first."
                     )
                     return
 
             # Step 2: Fetch channel videos
-            await update.message.reply_text("📺 Fetching channel videos...")
+            await send_message("📺 Fetching channel videos...")
 
             channel_id, all_videos = self.youtube_processor.get_channel_top_videos(
                 channel_url, count=1000, min_duration_min=10
             )
 
             if not channel_id or not all_videos:
-                await update.message.reply_text(
+                await send_message(
                     "❌ Failed to fetch channel videos.\n"
                     "Please check the channel URL."
                 )
                 return
 
-            await update.message.reply_text(
+            await send_message(
                 f"✅ Found {len(all_videos)} videos (>10 min)\n"
                 f"🎯 Selecting top 6 unique videos..."
             )
@@ -2105,14 +2116,14 @@ class WorkingF5Bot:
             )
 
             if not selected_videos:
-                await update.message.reply_text(
+                await send_message(
                     "⚠️ No new videos to process!\n\n"
                     "All videos have been processed in the last 15 days.\n"
                     "Try again later or try a different channel."
                 )
                 return
 
-            await update.message.reply_text(
+            await send_message(
                 f"✅ Selected {len(selected_videos)} videos\n\n"
                 f"📹 Starting processing...\n"
                 f"⏱️ This may take 15-20 minutes"
@@ -2128,7 +2139,7 @@ class WorkingF5Bot:
                 video_title = video['title']
 
                 try:
-                    await update.message.reply_text(
+                    await send_message(
                         f"📹 **Video {idx}/6**\n"
                         f"🎬 {video_title[:60]}...\n"
                         f"👁️ Views: {video['view_count']:,}\n\n"
@@ -2140,16 +2151,16 @@ class WorkingF5Bot:
                     transcript, key_exhausted = await self._get_transcript_with_rotation(video_url)
 
                     if not transcript:
-                        await update.message.reply_text(f"❌ Video {idx}: Transcript fetch failed. Skipping...")
+                        await send_message(f"❌ Video {idx}: Transcript fetch failed. Skipping...")
                         continue
 
-                    await update.message.reply_text(
+                    await send_message(
                         f"✅ Video {idx}: Transcript received ({len(transcript)} chars)"
                     )
 
                     # Step 5b: Chunk transcript
                     chunks = self.youtube_processor.chunk_text_at_fullstop(transcript, max_chars=7000)
-                    await update.message.reply_text(
+                    await send_message(
                         f"📦 Video {idx}: Split into {len(chunks)} chunks"
                     )
 
@@ -2159,7 +2170,7 @@ class WorkingF5Bot:
                     )
 
                     if not processed_chunks:
-                        await update.message.reply_text(f"❌ Video {idx}: DeepSeek processing failed. Skipping...")
+                        await send_message(f"❌ Video {idx}: DeepSeek processing failed. Skipping...")
                         continue
 
                     # Step 5d: Merge chunks
@@ -2168,7 +2179,7 @@ class WorkingF5Bot:
                     # Save merged script
                     self.youtube_processor.save_merged_script(merged_script, video_id, self.chunks_dir)
 
-                    await update.message.reply_text(
+                    await send_message(
                         f"✅ Video {idx}: Script processed ({len(merged_script)} chars)\n"
                         f"🎵 Generating audio..."
                     )
@@ -2189,16 +2200,16 @@ class WorkingF5Bot:
                                 video_id, video_url, channel_id, str(chat_id), counter
                             )
 
-                        await update.message.reply_text(
+                        await send_message(
                             f"✅ Video {idx}/{len(selected_videos)} complete!\n"
                             f"📊 Progress: {processed_count} successful"
                         )
                     else:
-                        await update.message.reply_text(f"❌ Video {idx}: Audio generation failed. Skipping...")
+                        await send_message(f"❌ Video {idx}: Audio generation failed. Skipping...")
 
                 except Exception as e:
                     print(f"Error processing video {idx}: {e}")
-                    await update.message.reply_text(
+                    await send_message(
                         f"❌ Video {idx}: Error - {str(e)[:100]}\n"
                         f"Continuing with next video..."
                     )
@@ -2213,9 +2224,9 @@ class WorkingF5Bot:
                     f"📊 All audio links have been sent above.\n"
                     f"💾 Scripts saved in: {self.chunks_dir}/"
                 )
-                await update.message.reply_text(summary, parse_mode="Markdown")
+                await send_message(summary, parse_mode="Markdown")
             else:
-                await update.message.reply_text(
+                await send_message(
                     "❌ No videos were successfully processed.\n"
                     "Please check logs for errors."
                 )
@@ -2223,7 +2234,7 @@ class WorkingF5Bot:
         except Exception as e:
             error_msg = f"❌ Channel processing error: {str(e)}"
             print(error_msg)
-            await update.message.reply_text(error_msg[:500])
+            await send_message(error_msg[:500])
 
     async def _get_transcript_with_rotation(self, video_url: str) -> tuple:
         """
