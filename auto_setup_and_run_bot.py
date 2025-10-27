@@ -66,17 +66,17 @@ def setup_environment():
     print("="*70 + "\n")
 
     # Change to workspace directory
-    # Use current directory on Windows, /workspace on Linux (Vast.ai)
+    # Use script's directory for better compatibility (works with git clone)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
     if sys.platform.startswith('win'):
-        workspace = os.getcwd()
-        print(f"📁 Windows detected - Using current directory: {workspace}")
+        workspace = script_dir
+        print(f"📁 Windows detected - Using script directory: {workspace}")
     else:
-        # Linux: Always use /workspace for Vast.ai compatibility
-        workspace = "/workspace"
-        print(f"📁 Linux detected - Using workspace: {workspace}")
-        if not os.path.exists(workspace):
-            print(f"⚠️ WARNING: /workspace not found, using current directory instead")
-            workspace = os.getcwd()
+        # Linux: use script's directory (works for /workspace, /workspace/kk, etc.)
+        workspace = script_dir
+        print(f"📁 Linux detected - Using script directory: {workspace}")
+        print(f"   (This works whether in /workspace or /workspace/kk)")
 
     os.chdir(workspace)
     print(f"📁 Working directory: {os.getcwd()}")

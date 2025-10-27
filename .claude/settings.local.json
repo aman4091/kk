@@ -11,7 +11,9 @@
       "Bash(python:*)",
       "Bash(git init:*)",
       "Bash(git remote add:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd YouTube Channel Automation feature with Supabase integration\n\nMajor Features:\n- YouTube channel processing: Auto-fetch top 6 videos (>10 min, sorted by views)\n- Supabase database integration for API keys, video tracking, and counters\n- Multi-chat support (Aman & Anu chats)\n- API key rotation (Supadata keys auto-rotate on exhaustion)\n- 15-day video cooldown to prevent duplicates\n- Global counter for audio file naming (1_raw.wav, 2_raw.wav, etc.)\n- 7000-char chunking with DeepSeek processing\n- Complete pipeline: Transcript → Chunking → DeepSeek → F5-TTS → Gofile\n\nNew Modules:\n- supabase_client.py: Database operations and API key management\n- transcribe_helper.py: Supadata API integration with job polling\n- youtube_processor.py: YouTube Data API v3 integration\n\nNew Commands:\n- /set_supabase_url, /set_supabase_key\n- /set_youtube_key, /add_supadata_key, /set_deepseek_key\n- /set_channel_prompt, /list_keys\n\nDependencies Added:\n- supabase>=2.0.0, httpx>=0.24.0, isodate>=0.6.1\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

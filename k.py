@@ -143,14 +143,18 @@ def setup_directories():
     """Create directory structure"""
     print_section("CREATING DIRECTORY STRUCTURE")
 
-    # Determine workspace - use current directory on Windows, /workspace on Linux
+    # Determine workspace - use script's directory for better compatibility
+    # This works whether script is in /workspace, /workspace/kk, or anywhere else
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
     if sys.platform.startswith('win'):
-        workspace = os.getcwd()  # Use current directory on Windows
-        print(f"📁 Using current directory: {workspace}")
+        workspace = script_dir  # Use script directory on Windows
+        print(f"📁 Using script directory: {workspace}")
     else:
-        # Linux: use /workspace (Vast.ai standard)
-        workspace = WORKSPACE
+        # Linux: use script's directory (works for both /workspace and /workspace/kk)
+        workspace = script_dir
         print(f"📁 Working in: {workspace}")
+        print(f"   (Script detected at: {script_dir})")
 
     os.chdir(workspace)
 
