@@ -27,20 +27,28 @@ load_dotenv()
 
 # Auto-set environment variables if not already set
 def auto_set_env_vars():
-    """Automatically set environment variables if missing"""
+    """
+    Automatically set environment variables if missing.
+
+    NOTE: All API keys and confidential data should be set via environment variables.
+    Use 'export' command in Vast.ai or add to .env file.
+
+    Required environment variables:
+    - BOT_TOKEN: Telegram bot token
+    - DEEPSEEK_API_KEY: DeepSeek API key
+    - SUPADATA_API_KEY: Supadata API key (or multiple via /add_supadata_key command)
+    - SUPABASE_URL: Supabase project URL
+    - SUPABASE_ANON_KEY: Supabase anonymous key
+    - YOUTUBE_API_KEY: YouTube Data API v3 key
+    - IMAGE_SHORTS_CHAT_ID: Telegram chat ID for shorts
+    - IMAGE_LONG_CHAT_ID: Telegram chat ID for long content
+    - GDRIVE_FOLDER_LONG: Google Drive folder ID for long content
+    - GDRIVE_FOLDER_SHORT: Google Drive folder ID for short content
+    - CHANNEL_IDS: Comma-separated channel IDs (optional)
+    """
+    # Only set non-sensitive default configurations
     default_env_vars = {
-        "DEEPSEEK_API_KEY": "sk-299e2e942ec14e35926666423990d968",
-        "SUPADATA_API_KEY": "sd_a3a69115625b5507719678ab42a7dd71",
-        "IMAGE_SHORTS_CHAT_ID": "-1002343932866",
-        "IMAGE_LONG_CHAT_ID": "-1002498893774",
-        "GDRIVE_FOLDER_LONG": "1y-Af4T5pAvgqV2gyvN9zhSPdvZzUcFyi",
-        "GDRIVE_FOLDER_SHORT": "1JdJCYDXLWjAz1091zs_Pnev3FuK3Ftex",
         "CHANNEL_MODE_ENABLED": "true",
-        "CHANNEL_IDS": "-1002498893774",
-        # YouTube Channel Automation API Keys
-        "SUPABASE_URL": "https://zrczbdkighpnzenjdsbi.supabase.co",  # Example: https://xxxxx.supabase.co
-        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpyY3piZGtpZ2hwbnplbmpkc2JpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1OTA0NTgsImV4cCI6MjA3NzE2NjQ1OH0.mA34gm1gqu2EP1TAE8La7sQpZmOOuVqWXSE0dAvtWdo",  # Example: eyJhbGciOi...
-        "YOUTUBE_API_KEY": "AIzaSyCFEQBb2_98ods5B28bDAqLhWRXpUivCS8"  # Get from Google Cloud Console
     }
 
     auto_set_count = 0
@@ -53,8 +61,7 @@ def auto_set_env_vars():
         print(f"\n{'='*50}")
         print(f"🔧 AUTO-CONFIGURED ENVIRONMENT")
         print(f"{'='*50}")
-        print(f"✅ Automatically set {auto_set_count} environment variables")
-        print(f"   (Including CHANNEL_MODE_ENABLED and CHANNEL_IDS)")
+        print(f"✅ Set {auto_set_count} default configuration(s)")
         print(f"{'='*50}\n")
 
 # Auto-set environment variables on startup
@@ -67,9 +74,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ⚠️ YE VALUES APNI DETAILS SE CHANGE KARIYE
-BOT_TOKEN = "8274226808:AAH0NQWBf9DF-nZpbOSbl4SkcCkcp8HMmDY"
-CHAT_ID = "447705580"  # Updated to correct chat ID
+# Load bot credentials from environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN environment variable is required! Set it via: export BOT_TOKEN='your_token_here'")
+
+CHAT_ID = os.getenv("CHAT_ID")  # Set via: export CHAT_ID='your_chat_id'
 
 # Channel Configuration
 CHANNEL_MODE_ENABLED = os.getenv("CHANNEL_MODE_ENABLED", "false").lower() == "true"
