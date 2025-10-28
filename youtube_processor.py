@@ -112,15 +112,41 @@ class YouTubeChannelProcessor:
 
             if username:
                 # Search for channel by username/handle
+                # Get multiple results to find exact match
                 request = self.youtube.search().list(
                     part='snippet',
                     q=username,
                     type='channel',
-                    maxResults=1
+                    maxResults=5  # Get top 5 to find exact match
                 )
                 response = request.execute()
 
                 if response.get('items'):
+                    # Find exact match by checking channel title/customUrl
+                    for item in response['items']:
+                        channel_id = item['snippet']['channelId']
+
+                        # Get full channel details to verify exact match
+                        channel_request = self.youtube.channels().list(
+                            part='snippet',
+                            id=channel_id
+                        )
+                        channel_response = channel_request.execute()
+
+                        if channel_response.get('items'):
+                            channel_data = channel_response['items'][0]['snippet']
+                            channel_custom_url = channel_data.get('customUrl', '').lower().lstrip('@')
+
+                            # Check for EXACT customUrl match (case-insensitive)
+                            # @GodsMiracleToday should match customUrl = "@godsmiracletoday"
+                            # But NOT match "@godmiraclestoday1111"
+                            if username.lower() == channel_custom_url:
+                                print(f"✅ Found exact match: {channel_data.get('title')} (@{channel_custom_url})")
+                                return channel_id
+
+                    # If no exact match found, warn user and use first result
+                    print(f"⚠️ WARNING: No exact match found for '@{username}'")
+                    print(f"⚠️ Using closest match: {response['items'][0]['snippet']['title']}")
                     return response['items'][0]['snippet']['channelId']
 
             print(f"❌ Could not extract channel ID from: {channel_url}")
@@ -400,7 +426,7 @@ class YouTubeChannelProcessor:
     # =============================================================================
 
     def get_channel_top_videos(self, channel_url: str, count: int = 6,
-                               min_duration_min: int = 10) -> Tuple[Optional[str], List[Dict]]:
+                               min_duration_min: int = 10) -> Tuple[Optional[str], Optional[str], List[Dict]]:
         """
         Complete pipeline: Get top N videos from channel.
 
@@ -410,22 +436,36 @@ class YouTubeChannelProcessor:
             min_duration_min: Minimum video duration in minutes (default: 10)
 
         Returns:
-            Tuple[channel_id, videos]: Channel ID and list of video dicts
+            Tuple[channel_id, channel_name, videos]: Channel ID, name, and list of video dicts
         """
         # Step 1: Extract channel ID
         channel_id = self.extract_channel_id(channel_url)
         if not channel_id:
             print("❌ Failed to extract channel ID")
-            return None, []
+            return None, None, []
 
-        # Step 2: Fetch all videos (up to 1000)
+        # Step 2: Fetch channel name
+        channel_name = None
+        try:
+            channel_request = self.youtube.channels().list(
+                part='snippet',
+                id=channel_id
+            )
+            channel_response = channel_request.execute()
+            if channel_response.get('items'):
+                channel_name = channel_response['items'][0]['snippet']['title']
+                print(f"✅ Channel resolved: {channel_name}")
+        except Exception as e:
+            print(f"⚠️ Could not fetch channel name: {e}")
+
+        # Step 3: Fetch all videos (up to 1000)
         all_videos = self.fetch_channel_videos(channel_id, max_results=1000)
         if not all_videos:
             print("❌ No videos fetched")
-            return channel_id, []
+            return channel_id, channel_name, []
 
-        # Step 3: Filter by duration and sort by views
+        # Step 4: Filter by duration and sort by views
         filtered_videos = self.filter_and_sort_videos(all_videos, min_duration_minutes=min_duration_min)
 
         print(f"✅ Pipeline complete: {len(filtered_videos)} videos ready")
-        return channel_id, filtered_videos
+        return channel_id, channel_name, filtered_videos

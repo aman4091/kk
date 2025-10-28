@@ -38,9 +38,9 @@ def auto_set_env_vars():
         "CHANNEL_MODE_ENABLED": "true",
         "CHANNEL_IDS": "-1002498893774",
         # YouTube Channel Automation API Keys
-        "SUPABASE_URL": "YOUR_SUPABASE_URL_HERE",  # Example: https://xxxxx.supabase.co
-        "SUPABASE_ANON_KEY": "YOUR_SUPABASE_ANON_KEY_HERE",  # Example: eyJhbGciOi...
-        "YOUTUBE_API_KEY": "YOUR_YOUTUBE_DATA_API_V3_KEY_HERE"  # Get from Google Cloud Console
+        "SUPABASE_URL": "https://zrczbdkighpnzenjdsbi.supabase.co",  # Example: https://xxxxx.supabase.co
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpyY3piZGtpZ2hwbnplbmpkc2JpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1OTA0NTgsImV4cCI6MjA3NzE2NjQ1OH0.mA34gm1gqu2EP1TAE8La7sQpZmOOuVqWXSE0dAvtWdo",  # Example: eyJhbGciOi...
+        "YOUTUBE_API_KEY": "AIzaSyCFEQBb2_98ods5B28bDAqLhWRXpUivCS8"  # Get from Google Cloud Console
     }
 
     auto_set_count = 0
@@ -2091,7 +2091,7 @@ class WorkingF5Bot:
             # Step 2: Fetch channel videos
             await send_message("📺 Fetching channel videos...")
 
-            channel_id, all_videos = self.youtube_processor.get_channel_top_videos(
+            channel_id, channel_name, all_videos = self.youtube_processor.get_channel_top_videos(
                 channel_url, count=1000, min_duration_min=10
             )
 
@@ -2102,9 +2102,14 @@ class WorkingF5Bot:
                 )
                 return
 
+            # Show which channel was found (verification for user)
             await send_message(
-                f"✅ Found {len(all_videos)} videos (>10 min)\n"
-                f"🎯 Selecting top 6 unique videos..."
+                f"✅ **Channel Found:**\n"
+                f"📺 {channel_name or 'Unknown'}\n"
+                f"🆔 `{channel_id}`\n\n"
+                f"📊 Found {len(all_videos)} videos (>10 min)\n"
+                f"🎯 Selecting top 6 unique videos...",
+                parse_mode="Markdown"
             )
 
             # Step 3: Get unprocessed video IDs (15-day cooldown)
