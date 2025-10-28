@@ -59,6 +59,7 @@ Thumbs.db
 credentials.json
 token.json
 .google/
+vastai_export_commands.txt
 
 # Large files
 *.zip
