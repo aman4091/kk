@@ -64,6 +64,7 @@ vastai_export_commands.txt
 setup_env_persistent.sh
 vastai_auto_setup.py
 audio_to_video_converter.py
+auto_setup_and_run_bot.py
 
 # Large files
 *.zip
