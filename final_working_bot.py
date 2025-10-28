@@ -2537,22 +2537,32 @@ class WorkingF5Bot:
             # Upload both files
             links = []
 
+            await send_msg(f"📤 Uploading audio files to Gofile...")
+
             for file_path in [raw_output, enhanced_output]:
                 if os.path.exists(file_path):
                     filename = os.path.basename(file_path)
                     size_mb = os.path.getsize(file_path) // (1024 * 1024)
 
+                    print(f"📤 Uploading {filename} ({size_mb} MB)...")
+                    await send_msg(f"📤 Uploading {filename}...")
+
                     # Upload to Gofile
                     link = await self.upload_single_to_gofile(file_path)
 
                     if link:
+                        print(f"✅ Upload successful: {link}")
+                        # Send without parse_mode to avoid Markdown errors with URLs
                         await send_msg(
-                            f"🔗 **{filename}** ({size_mb} MB)\n{link}",
-                            parse_mode="Markdown"
+                            f"🔗 {filename} ({size_mb} MB)\n{link}"
                         )
                         links.append(link)
                     else:
+                        print(f"❌ Upload failed for {filename}")
                         await send_msg(f"⚠️ Failed to upload {filename}")
+                else:
+                    print(f"❌ File not found: {file_path}")
+                    await send_msg(f"❌ File not found: {os.path.basename(file_path)}")
 
             return links
 
