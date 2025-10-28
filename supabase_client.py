@@ -55,7 +55,7 @@ class SupabaseClient:
             # Check if tables exist by querying them
             tables_to_check = [
                 'api_keys', 'youtube_channels', 'processed_videos',
-                'prompts', 'chat_configs', 'global_counter'
+                'prompts', 'chat_configs', 'global_counter', 'audio_links'
             ]
 
             for table in tables_to_check:
@@ -133,6 +133,16 @@ CREATE TABLE IF NOT EXISTS global_counter (
 
 -- Initialize counter if not exists
 INSERT INTO global_counter (id, counter) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
+
+-- Audio Links Table (for download queue)
+CREATE TABLE IF NOT EXISTS audio_links (
+    id BIGSERIAL PRIMARY KEY,
+    enhanced_link TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_audio_links_created ON audio_links (created_at DESC);
 """
 
     # =============================================================================
@@ -469,3 +479,55 @@ INSERT INTO global_counter (id, counter) VALUES (1, 0) ON CONFLICT (id) DO NOTHI
         except Exception as e:
             print(f"❌ Error getting active chats: {e}")
             return []
+
+    # =============================================================================
+    # AUDIO LINKS MANAGEMENT (for download queue)
+    # =============================================================================
+
+    def save_audio_link(self, enhanced_link: str) -> bool:
+        """Save enhanced audio link to database for later processing"""
+        if not self.is_connected():
+            return False
+
+        try:
+            self.client.table('audio_links').insert({
+                'enhanced_link': enhanced_link,
+                'created_at': datetime.now().isoformat()
+            }).execute()
+            print(f"✅ Audio link saved to database")
+            return True
+        except Exception as e:
+            print(f"❌ Error saving audio link: {e}")
+            return False
+
+    def get_pending_audio_links(self) -> List[Dict]:
+        """Fetch all pending audio links from database"""
+        if not self.is_connected():
+            return []
+
+        try:
+            result = self.client.table('audio_links')\
+                .select('id, enhanced_link')\
+                .order('created_at', desc=False)\
+                .execute()
+
+            return result.data if result.data else []
+        except Exception as e:
+            print(f"❌ Error fetching audio links: {e}")
+            return []
+
+    def delete_audio_link(self, link_id: int) -> bool:
+        """Delete processed audio link from database"""
+        if not self.is_connected():
+            return False
+
+        try:
+            self.client.table('audio_links')\
+                .delete()\
+                .eq('id', link_id)\
+                .execute()
+            print(f"✅ Audio link deleted from database (ID: {link_id})")
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting audio link: {e}")
+            return False

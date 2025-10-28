@@ -2098,19 +2098,96 @@ class WorkingF5Bot:
                     )
                     return
 
-            # Step 2: Fetch channel videos
-            await send_message("📺 Fetching channel videos...")
+            # Step 2: Check cache first, then fetch if needed
+            await send_message("📺 Checking channel cache...")
 
-            channel_id, channel_name, all_videos = self.youtube_processor.get_channel_top_videos(
-                channel_url, count=1000, min_duration_min=10
-            )
+            channel_id = None
+            channel_name = None
+            all_videos = []
+            used_cache = False
 
-            if not channel_id or not all_videos:
-                await send_message(
-                    "❌ Failed to fetch channel videos.\n"
-                    "Please check the channel URL."
+            # Try to get from database cache
+            if self.supabase.is_connected():
+                cached_channel = self.supabase.get_youtube_channel(channel_url)
+
+                if cached_channel:
+                    # Check if cache is recent (less than 7 days old)
+                    try:
+                        from datetime import datetime, timedelta, timezone
+
+                        # Parse last_updated timestamp
+                        last_updated_str = cached_channel.get('last_updated', '')
+                        if last_updated_str:
+                            # Handle both with and without timezone
+                            if last_updated_str.endswith('Z'):
+                                last_updated_str = last_updated_str.replace('Z', '+00:00')
+
+                            last_updated = datetime.fromisoformat(last_updated_str)
+
+                            # Calculate age
+                            if last_updated.tzinfo is None:
+                                # If no timezone, assume UTC
+                                last_updated = last_updated.replace(tzinfo=timezone.utc)
+                                cache_age = datetime.now(timezone.utc) - last_updated
+                            else:
+                                cache_age = datetime.now(last_updated.tzinfo) - last_updated
+
+                            if cache_age < timedelta(days=7):
+                                # Use cached data
+                                channel_id = cached_channel['channel_id']
+                                channel_name = cached_channel['channel_name']
+                                all_videos = cached_channel.get('videos', [])
+                                used_cache = True
+
+                                cache_days = cache_age.days
+                                cache_hours = cache_age.seconds // 3600
+
+                                if cache_days > 0:
+                                    age_str = f"{cache_days} days ago"
+                                elif cache_hours > 0:
+                                    age_str = f"{cache_hours} hours ago"
+                                else:
+                                    age_str = "recently"
+
+                                await send_message(
+                                    f"✅ Using cached data (updated {age_str})\n"
+                                    f"📊 {len(all_videos)} videos in cache"
+                                )
+                            else:
+                                await send_message(
+                                    f"⚠️ Cache expired ({cache_age.days} days old)\n"
+                                    f"📥 Fetching fresh data..."
+                                )
+                        else:
+                            # No timestamp, treat as expired
+                            await send_message("⚠️ Cache timestamp missing, fetching fresh data...")
+
+                    except Exception as e:
+                        print(f"Error parsing cache timestamp: {e}")
+                        # If any error in parsing, fetch fresh data
+                        await send_message("⚠️ Cache error, fetching fresh data...")
+
+            # Fetch fresh data if no cache or cache expired
+            if not used_cache:
+                await send_message("📺 Fetching channel videos from YouTube...")
+
+                channel_id, channel_name, all_videos = self.youtube_processor.get_channel_top_videos(
+                    channel_url, count=1000, min_duration_min=10
                 )
-                return
+
+                if not channel_id or not all_videos:
+                    await send_message(
+                        "❌ Failed to fetch channel videos.\n"
+                        "Please check the channel URL."
+                    )
+                    return
+
+                # Store in database for future use
+                if self.supabase.is_connected():
+                    self.supabase.store_youtube_channel(
+                        channel_url, channel_id, channel_name, all_videos
+                    )
+                    await send_message("💾 Channel data cached in database")
 
             # Show which channel was found (verification for user)
             await send_message(
@@ -2247,10 +2324,24 @@ class WorkingF5Bot:
 
             # Step 6: Final summary
             if processed_count > 0:
+                # Save enhanced audio links to database
+                # Links come in pairs: [raw, enhanced, raw, enhanced, ...]
+                # We want only enhanced links (odd indices: 1, 3, 5, ...)
+                enhanced_links = [all_audio_links[i] for i in range(1, len(all_audio_links), 2)]
+
+                saved_count = 0
+                if self.supabase.is_connected() and enhanced_links:
+                    await send_message("💾 Saving enhanced audio links to database...")
+                    for link in enhanced_links:
+                        if self.supabase.save_audio_link(link):
+                            saved_count += 1
+                    await send_message(f"✅ Saved {saved_count}/{len(enhanced_links)} enhanced links to database")
+
                 summary = (
                     f"🎉 **Channel Processing Complete!**\n\n"
                     f"✅ Successfully processed: {processed_count}/{len(selected_videos)} videos\n"
-                    f"🔗 Total audio files: {len(all_audio_links)}\n\n"
+                    f"🔗 Total audio files: {len(all_audio_links)}\n"
+                    f"💾 Enhanced links saved: {saved_count}/{len(enhanced_links)}\n\n"
                     f"📊 All audio links have been sent above.\n"
                     f"💾 Scripts saved in: {self.chunks_dir}/"
                 )
@@ -2424,7 +2515,24 @@ class WorkingF5Bot:
 
             # Apply filters for enhanced version
             await send_msg(f"🎛️ Creating enhanced version...")
-            self.apply_audio_filters(raw_output, enhanced_output)
+
+            # Create enhanced version using FFmpeg
+            try:
+                import subprocess
+                ffmpeg_enhance_cmd = [
+                    'ffmpeg', '-i', raw_output,
+                    '-af', self.ffmpeg_filter,
+                    '-y', enhanced_output
+                ]
+                subprocess.run(ffmpeg_enhance_cmd, capture_output=True, check=True, timeout=60)
+                print(f"✅ Enhanced audio created: {enhanced_output}")
+            except Exception as e:
+                print(f"⚠️ Enhanced audio creation failed: {e}")
+                # Use raw as fallback
+                import shutil
+                if os.path.exists(raw_output):
+                    shutil.copy(raw_output, enhanced_output)
+                    print(f"✅ Using raw audio as enhanced (fallback)")
 
             # Upload both files
             links = []

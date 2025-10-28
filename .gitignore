@@ -30,6 +30,7 @@ output/
 processed/
 reference/
 chunks/
+video/
 *.wav
 *.mp3
 *.mp4
@@ -62,6 +63,7 @@ token.json
 vastai_export_commands.txt
 setup_env_persistent.sh
 vastai_auto_setup.py
+audio_to_video_converter.py
 
 # Large files
 *.zip
