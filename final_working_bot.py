@@ -2401,13 +2401,26 @@ class WorkingF5Bot:
             raw_output = f"{base_output_path}_raw.wav"
             enhanced_output = f"{base_output_path}_enhanced.wav"
 
-            # Generate raw audio
+            # Generate audio using existing working method
             await send_msg(f"🎵 Generating audio {counter}_raw.wav...")
-            raw_success, error_msg = await self._generate_f5_audio(script, raw_output, chat_id, context)
 
-            if not raw_success:
+            # Use existing generate_audio_f5 method (same as normal processing)
+            success, result = await self.generate_audio_f5(script, chat_id)
+
+            if not success:
+                error_msg = result if isinstance(result, str) else "Unknown error"
                 await send_msg(f"❌ Audio generation failed: {error_msg}")
                 return []
+
+            # result contains list of output files from generate_audio_f5
+            # Move/rename the first file to our counter-based naming
+            if result and isinstance(result, list) and len(result) > 0:
+                first_file = result[0]
+                if os.path.exists(first_file):
+                    # Rename to counter-based name
+                    import shutil
+                    shutil.move(first_file, raw_output)
+                    print(f"✅ Renamed {first_file} → {raw_output}")
 
             # Apply filters for enhanced version
             await send_msg(f"🎛️ Creating enhanced version...")
