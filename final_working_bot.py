@@ -36,7 +36,11 @@ def auto_set_env_vars():
         "GDRIVE_FOLDER_LONG": "1y-Af4T5pAvgqV2gyvN9zhSPdvZzUcFyi",
         "GDRIVE_FOLDER_SHORT": "1JdJCYDXLWjAz1091zs_Pnev3FuK3Ftex",
         "CHANNEL_MODE_ENABLED": "true",
-        "CHANNEL_IDS": "-1002498893774"
+        "CHANNEL_IDS": "-1002498893774",
+        # YouTube Channel Automation API Keys
+        "SUPABASE_URL": "YOUR_SUPABASE_URL_HERE",  # Example: https://xxxxx.supabase.co
+        "SUPABASE_ANON_KEY": "YOUR_SUPABASE_ANON_KEY_HERE",  # Example: eyJhbGciOi...
+        "YOUTUBE_API_KEY": "YOUR_YOUTUBE_DATA_API_V3_KEY_HERE"  # Get from Google Cloud Console
     }
 
     auto_set_count = 0
@@ -2292,6 +2296,16 @@ class WorkingF5Bot:
         Process each chunk with DeepSeek API and save to disk.
         Returns list of processed chunks.
         """
+        # Helper to send messages (works for both channels and direct messages)
+        async def send_msg(text, parse_mode=None):
+            try:
+                if update.message:
+                    await update.message.reply_text(text, parse_mode=parse_mode)
+                else:
+                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+            except Exception as e:
+                print(f"Error sending message: {e}")
+
         # Get DeepSeek API key
         deepseek_key = None
         if self.supabase.is_connected():
@@ -2317,7 +2331,7 @@ class WorkingF5Bot:
 
         for chunk_idx, chunk in enumerate(chunks, 1):
             try:
-                await update.message.reply_text(
+                await send_msg(
                     f"🤖 Video {video_idx}: Processing chunk {chunk_idx}/{len(chunks)}..."
                 )
 
@@ -2345,6 +2359,16 @@ class WorkingF5Bot:
         Generate audio using F5-TTS with global counter-based naming.
         Returns list of Gofile links.
         """
+        # Helper to send messages (works for both channels and direct messages)
+        async def send_msg(text, parse_mode=None):
+            try:
+                if update.message:
+                    await update.message.reply_text(text, parse_mode=parse_mode)
+                else:
+                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+            except Exception as e:
+                print(f"Error sending message: {e}")
+
         try:
             # Get and increment global counter
             counter = 0
@@ -2363,14 +2387,14 @@ class WorkingF5Bot:
             enhanced_output = f"{base_output_path}_enhanced.wav"
 
             # Generate raw audio
-            await update.message.reply_text(f"🎵 Generating audio {counter}_raw.wav...")
+            await send_msg(f"🎵 Generating audio {counter}_raw.wav...")
             raw_success = await self._generate_f5_audio(script, raw_output, chat_id, context)
 
             if not raw_success:
                 return []
 
             # Apply filters for enhanced version
-            await update.message.reply_text(f"🎛️ Creating enhanced version...")
+            await send_msg(f"🎛️ Creating enhanced version...")
             self.apply_audio_filters(raw_output, enhanced_output)
 
             # Upload both files
@@ -2385,13 +2409,13 @@ class WorkingF5Bot:
                     link = await self.upload_single_to_gofile(file_path)
 
                     if link:
-                        await update.message.reply_text(
+                        await send_msg(
                             f"🔗 **{filename}** ({size_mb} MB)\n{link}",
                             parse_mode="Markdown"
                         )
                         links.append(link)
                     else:
-                        await update.message.reply_text(f"⚠️ Failed to upload {filename}")
+                        await send_msg(f"⚠️ Failed to upload {filename}")
 
             return links
 
