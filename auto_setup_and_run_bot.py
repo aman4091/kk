@@ -66,17 +66,17 @@ def setup_environment():
     print("="*70 + "\n")
 
     # Change to workspace directory
-    # Use script's directory for better compatibility (works with git clone)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
+    # Use current directory on Windows, /workspace on Linux (Vast.ai)
     if sys.platform.startswith('win'):
-        workspace = script_dir
-        print(f"📁 Windows detected - Using script directory: {workspace}")
+        workspace = os.getcwd()
+        print(f"📁 Windows detected - Using current directory: {workspace}")
     else:
-        # Linux: use script's directory (works for /workspace, /workspace/kk, etc.)
-        workspace = script_dir
-        print(f"📁 Linux detected - Using script directory: {workspace}")
-        print(f"   (This works whether in /workspace or /workspace/kk)")
+        # Linux: Always use /workspace for Vast.ai compatibility
+        workspace = "/workspace"
+        print(f"📁 Linux detected - Using workspace: {workspace}")
+        if not os.path.exists(workspace):
+            print(f"⚠️ WARNING: /workspace not found, using current directory instead")
+            workspace = os.getcwd()
 
     os.chdir(workspace)
     print(f"📁 Working directory: {os.getcwd()}")
@@ -201,13 +201,7 @@ def setup_environment():
         "pytz==2023.3",
         "google-auth-oauthlib==1.2.0",
         "google-auth-httplib2==0.2.0",
-        "google-api-python-client==2.108.0",
-        "torch",
-        "torchaudio",
-        # New dependencies for YouTube Channel Automation
-        "supabase>=2.0.0",
-        "httpx>=0.24.0",
-        "isodate>=0.6.1"
+        "google-api-python-client==2.108.0"
     ]
 
     packages_str = " ".join(packages)
