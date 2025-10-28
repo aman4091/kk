@@ -2123,10 +2123,18 @@ class WorkingF5Bot:
                 )
                 return
 
+            # Show selected video IDs
+            video_list = "\n".join([
+                f"{i+1}. `{v['video_id']}` - {v['title'][:40]}... ({v['view_count']:,} views)"
+                for i, v in enumerate(selected_videos)
+            ])
+
             await send_message(
-                f"✅ Selected {len(selected_videos)} videos\n\n"
+                f"✅ **Selected {len(selected_videos)} videos:**\n\n"
+                f"{video_list}\n\n"
                 f"📹 Starting processing...\n"
-                f"⏱️ This may take 15-20 minutes"
+                f"⏱️ Estimated time: 15-20 minutes",
+                parse_mode="Markdown"
             )
 
             # Step 5: Process each video
@@ -2142,6 +2150,7 @@ class WorkingF5Bot:
                     await send_message(
                         f"📹 **Video {idx}/6**\n"
                         f"🎬 {video_title[:60]}...\n"
+                        f"🆔 Video ID: `{video_id}`\n"
                         f"👁️ Views: {video['view_count']:,}\n\n"
                         f"🔄 Processing...",
                         parse_mode="Markdown"
@@ -2201,8 +2210,10 @@ class WorkingF5Bot:
                             )
 
                         await send_message(
-                            f"✅ Video {idx}/{len(selected_videos)} complete!\n"
-                            f"📊 Progress: {processed_count} successful"
+                            f"✅ **Video {idx}/{len(selected_videos)} complete!**\n"
+                            f"🆔 Video ID: `{video_id}`\n"
+                            f"📊 Progress: {processed_count}/{len(selected_videos)} successful",
+                            parse_mode="Markdown"
                         )
                     else:
                         await send_message(f"❌ Video {idx}: Audio generation failed. Skipping...")
