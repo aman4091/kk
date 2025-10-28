@@ -60,6 +60,7 @@ credentials.json
 token.json
 .google/
 vastai_export_commands.txt
+setup_env_persistent.sh
 
 # Large files
 *.zip

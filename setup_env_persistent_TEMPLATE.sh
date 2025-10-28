@@ -1,8 +1,12 @@
 #!/bin/bash
 
-# Persistent Environment Variables Setup for Vast.ai
-# Run this ONCE: bash setup_env_persistent.sh
-# After running, environment variables will be available in all future sessions
+# Persistent Environment Variables Setup for Vast.ai - TEMPLATE
+#
+# INSTRUCTIONS:
+# 1. Copy this file: cp setup_env_persistent_TEMPLATE.sh setup_env_persistent.sh
+# 2. Edit setup_env_persistent.sh and replace YOUR_*_HERE with actual values
+# 3. Run: bash setup_env_persistent.sh
+# 4. After running, environment variables will be available in all future sessions
 
 echo "=========================================="
 echo "Setting up persistent environment variables..."
@@ -25,18 +29,18 @@ sed -i '/# Bot Environment Variables - START/,/# Bot Environment Variables - END
 cat >> ~/.bashrc << 'EOF'
 
 # Bot Environment Variables - START (Auto-generated)
-export BOT_TOKEN='8274226808:AAH0NQWBf9DF-nZpbOSbl4SkcCkcp8HMmDY'
-export DEEPSEEK_API_KEY='sk-299e2e942ec14e35926666423990d968'
-export SUPADATA_API_KEY='sd_a3a69115625b5507719678ab42a7dd71'
-export SUPABASE_URL='https://zrczbdkighpnzenjdsbi.supabase.co'
-export SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpyY3piZGtpZ2hwbnplbmpkc2JpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1OTA0NTgsImV4cCI6MjA3NzE2NjQ1OH0.mA34gm1gqu2EP1TAE8La7sQpZmOOuVqWXSE0dAvtWdo'
-export YOUTUBE_API_KEY='AIzaSyCFEQBb2_98ods5B28bDAqLhWRXpUivCS8'
-export CHAT_ID='447705580'
-export IMAGE_SHORTS_CHAT_ID='-1002343932866'
-export IMAGE_LONG_CHAT_ID='-1002498893774'
-export GDRIVE_FOLDER_LONG='1y-Af4T5pAvgqV2gyvN9zhSPdvZzUcFyi'
-export GDRIVE_FOLDER_SHORT='1JdJCYDXLWjAz1091zs_Pnev3FuK3Ftex'
-export CHANNEL_IDS='-1002498893774'
+export BOT_TOKEN='YOUR_BOT_TOKEN_HERE'
+export DEEPSEEK_API_KEY='YOUR_DEEPSEEK_KEY_HERE'
+export SUPADATA_API_KEY='YOUR_SUPADATA_KEY_HERE'
+export SUPABASE_URL='YOUR_SUPABASE_URL_HERE'
+export SUPABASE_ANON_KEY='YOUR_SUPABASE_ANON_KEY_HERE'
+export YOUTUBE_API_KEY='YOUR_YOUTUBE_API_KEY_HERE'
+export CHAT_ID='YOUR_CHAT_ID_HERE'
+export IMAGE_SHORTS_CHAT_ID='YOUR_SHORTS_CHAT_ID_HERE'
+export IMAGE_LONG_CHAT_ID='YOUR_LONG_CHAT_ID_HERE'
+export GDRIVE_FOLDER_LONG='YOUR_GDRIVE_FOLDER_LONG_ID_HERE'
+export GDRIVE_FOLDER_SHORT='YOUR_GDRIVE_FOLDER_SHORT_ID_HERE'
+export CHANNEL_IDS='YOUR_CHANNEL_IDS_HERE'
 # Bot Environment Variables - END
 
 EOF
