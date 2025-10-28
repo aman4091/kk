@@ -2403,9 +2403,10 @@ class WorkingF5Bot:
 
             # Generate raw audio
             await send_msg(f"🎵 Generating audio {counter}_raw.wav...")
-            raw_success = await self._generate_f5_audio(script, raw_output, chat_id, context)
+            raw_success, error_msg = await self._generate_f5_audio(script, raw_output, chat_id, context)
 
             if not raw_success:
+                await send_msg(f"❌ Audio generation failed: {error_msg}")
                 return []
 
             # Apply filters for enhanced version
@@ -2435,18 +2436,23 @@ class WorkingF5Bot:
             return links
 
         except Exception as e:
-            print(f"Error generating audio: {e}")
+            error = f"Error generating audio: {str(e)}"
+            print(f"❌ {error}")
+            import traceback
+            traceback.print_exc()
+            await send_msg(f"❌ {error}")
             return []
 
-    async def _generate_f5_audio(self, text: str, output_path: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    async def _generate_f5_audio(self, text: str, output_path: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> tuple:
         """
         Generate audio using F5-TTS (uses existing generate_audio_f5 logic).
-        Returns True if successful.
+        Returns: (success: bool, error_message: str)
         """
         try:
             if not self.f5_model or not self.reference_audio:
-                print("❌ F5-TTS model or reference audio not initialized")
-                return False
+                error = "F5-TTS model or reference audio not initialized"
+                print(f"❌ {error}")
+                return False, error
 
             print(f"🔄 F5-TTS generation starting for {len(text)} chars...")
 
@@ -2459,8 +2465,9 @@ class WorkingF5Bot:
 
             for i, chunk in enumerate(chunks):
                 if self.stop_requested:
-                    print(f"🛑 Stop requested during chunk {i+1}/{len(chunks)}")
-                    return False
+                    error = f"Stop requested during chunk {i+1}/{len(chunks)}"
+                    print(f"🛑 {error}")
+                    return False, error
 
                 print(f"📄 Processing chunk {i+1}/{len(chunks)}")
 
@@ -2522,13 +2529,14 @@ class WorkingF5Bot:
                 sf.write(output_path, final_audio, 24000)
 
             print(f"✅ Audio saved successfully")
-            return True
+            return True, None
 
         except Exception as e:
-            print(f"❌ F5-TTS generation error: {e}")
+            error = f"F5-TTS generation error: {str(e)}"
+            print(f"❌ {error}")
             import traceback
             traceback.print_exc()
-            return False
+            return False, error
 
     async def start_processing_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Skip batch timer and start processing immediately"""
