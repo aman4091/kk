@@ -4224,7 +4224,7 @@ class WorkingF5Bot:
                     context._chat_id = chat_id
 
                 # Start processing immediately (no timer)
-                asyncio.create_task(self.process_queue(context, chat_id))
+                asyncio.create_task(self.process_queue(context))
 
         except Exception as e:
             # CRITICAL: NO Telegram messages in exception handler!
@@ -4439,7 +4439,7 @@ class WorkingF5Bot:
                     context._chat_id = chat_id
 
                 # Start processing immediately (no timer)
-                asyncio.create_task(self.process_queue(context, chat_id))
+                asyncio.create_task(self.process_queue(context))
 
             else:
                 # Already in batch mode - silent mode or just log
