@@ -2327,15 +2327,29 @@ class WorkingF5Bot:
                 # Save enhanced audio links to database
                 # Links come in pairs: [raw, enhanced, raw, enhanced, ...]
                 # We want only enhanced links (odd indices: 1, 3, 5, ...)
+                print(f"\n📊 All audio links ({len(all_audio_links)} total): {all_audio_links[:2]}...")
                 enhanced_links = [all_audio_links[i] for i in range(1, len(all_audio_links), 2)]
+                print(f"📊 Enhanced links extracted ({len(enhanced_links)} total)")
 
                 saved_count = 0
                 if self.supabase.is_connected() and enhanced_links:
                     await send_message("💾 Saving enhanced audio links to database...")
-                    for link in enhanced_links:
+                    print(f"💾 Starting to save {len(enhanced_links)} enhanced links...")
+                    for idx, link in enumerate(enhanced_links, 1):
+                        print(f"💾 Saving link {idx}/{len(enhanced_links)}: {link[:50]}...")
                         if self.supabase.save_audio_link(link):
                             saved_count += 1
+                            print(f"✅ Link {idx} saved successfully")
+                        else:
+                            print(f"❌ Link {idx} failed to save")
                     await send_message(f"✅ Saved {saved_count}/{len(enhanced_links)} enhanced links to database")
+                else:
+                    if not self.supabase.is_connected():
+                        print("❌ Supabase not connected!")
+                        await send_message("⚠️ Supabase not connected - links not saved")
+                    elif not enhanced_links:
+                        print("❌ No enhanced links found!")
+                        await send_message("⚠️ No enhanced links to save")
 
                 summary = (
                     f"🎉 **Channel Processing Complete!**\n\n"
