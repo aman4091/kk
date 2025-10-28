@@ -4081,20 +4081,18 @@ class WorkingF5Bot:
             self.processing_queue.append(queue_item)
             queue_size = len(self.processing_queue)
 
-            print(f"📥 Queued silently: {document.file_name} (Queue: {queue_size})")
+            print(f"📥 File added to queue: {document.file_name} (Queue: {queue_size})")
 
-            # Start batch timer ONLY for first file, NO messages
-            if not self.batch_mode and not self.is_processing and queue_size == 1:
-                self.batch_mode = True
-                self.queue_start_time = time.time()
-
+            # BATCH MODE DISABLED - Process files immediately
+            # Start processing immediately if not already processing
+            if not self.is_processing:
+                print(f"🚀 Starting immediate processing...")
                 # Store context for channel processing
                 if is_channel:
                     context._chat_id = chat_id
 
-                # Start batch timer silently
-                print(f"⏳ Batch timer started silently - {self.queue_wait_time}s")
-                asyncio.create_task(self.start_batch_timer(context, chat_id))
+                # Start processing immediately (no timer)
+                asyncio.create_task(self.process_queue(context, chat_id))
 
         except Exception as e:
             # CRITICAL: NO Telegram messages in exception handler!
@@ -4280,10 +4278,9 @@ class WorkingF5Bot:
             self.processing_queue.append(queue_item)
             queue_size = len(self.processing_queue)
 
-            # Batch mode logic - agar pehli file hai toh timer start karo
-            if not self.batch_mode and not self.is_processing:
-                self.batch_mode = True
-                self.queue_start_time = time.time()
+            # BATCH MODE DISABLED - Process immediately
+            if not self.is_processing:
+                print(f"🚀 Starting immediate processing for {filename}...")
 
                 # Only send message if not silent mode
                 if not silent:
@@ -4291,10 +4288,7 @@ class WorkingF5Bot:
                         f"📝 File added to queue!\n"
                         f"📄 File: {filename}\n"
                         f"📊 Queue position: {queue_size}\n\n"
-                        f"⏳ **BATCH MODE ACTIVATED**\n"
-                        f"⏱️ Waiting 2 minutes to collect all files...\n"
-                        f"📥 Send more files now - they'll be queued!\n\n"
-                        f"Processing will start automatically after 2 minutes."
+                        f"🚀 Processing will start immediately..."
                     )
 
                     try:
@@ -4312,8 +4306,8 @@ class WorkingF5Bot:
                 if is_channel:
                     context._chat_id = chat_id
 
-                # Start batch timer (2 minutes wait, then process)
-                asyncio.create_task(self.start_batch_timer(context, chat_id))
+                # Start processing immediately (no timer)
+                asyncio.create_task(self.process_queue(context, chat_id))
 
             else:
                 # Already in batch mode - silent mode or just log
