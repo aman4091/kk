@@ -2440,37 +2440,94 @@ class WorkingF5Bot:
 
     async def _generate_f5_audio(self, text: str, output_path: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
         """
-        Generate audio using F5-TTS (wrapper around existing method).
+        Generate audio using F5-TTS (uses existing generate_audio_f5 logic).
         Returns True if successful.
         """
         try:
-            # Use existing generate_audio method from the bot
-            # This is a simplified version - you may need to adapt based on your existing implementation
-
             if not self.f5_model or not self.reference_audio:
                 print("❌ F5-TTS model or reference audio not initialized")
                 return False
 
-            # Generate audio (use your existing F5-TTS generation code)
-            # This is placeholder - adapt to your actual F5-TTS implementation
-            from f5_tts.api import F5TTS
+            print(f"🔄 F5-TTS generation starting for {len(text)} chars...")
 
-            # Generate audio chunks
-            wav = self.f5_model.infer(
-                ref_audio=self.reference_audio,
-                ref_text=self.reference_text,
-                gen_text=text[:self.chunk_size],  # Use configured chunk size
-                speed=self.audio_speed
-            )
+            # Split text into chunks (same as existing method)
+            chunks = self.split_text_into_chunks(text, self.chunk_size)
+            print(f"📊 Split into {len(chunks)} chunks")
 
-            # Save audio
-            import soundfile as sf
-            sf.write(output_path, wav, 24000)
+            # Generate audio for each chunk
+            audio_segments = []
 
+            for i, chunk in enumerate(chunks):
+                if self.stop_requested:
+                    print(f"🛑 Stop requested during chunk {i+1}/{len(chunks)}")
+                    return False
+
+                print(f"📄 Processing chunk {i+1}/{len(chunks)}")
+
+                # Clear CUDA memory
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                # F5-TTS inference (same as existing method)
+                with torch.inference_mode():
+                    result = self.f5_model.infer(
+                        ref_file=self.reference_audio,
+                        ref_text="",  # Auto-extract
+                        gen_text=chunk,
+                        remove_silence=True,
+                        cross_fade_duration=0.15,
+                        speed=self.audio_speed,
+                        nfe_step=32,
+                        cfg_strength=1.5,
+                        target_rms=0.1
+                    )
+
+                # Extract audio data
+                if isinstance(result, tuple):
+                    audio_data = result[0]
+                else:
+                    audio_data = result
+
+                # Move to CPU
+                if torch.is_tensor(audio_data):
+                    audio_data = audio_data.cpu()
+
+                audio_segments.append(audio_data)
+
+                # Cleanup
+                del result
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+            print("🔗 Combining audio segments...")
+
+            # Concatenate all segments
+            if torch.is_tensor(audio_segments[0]):
+                final_audio = torch.cat(audio_segments, dim=-1).cpu()
+            else:
+                import numpy as np
+                final_audio = np.concatenate(audio_segments)
+
+            # Save to provided output path
+            print(f"💾 Saving audio to {output_path}...")
+            if torch.is_tensor(final_audio):
+                if final_audio.dim() == 1:
+                    final_audio = final_audio.unsqueeze(0)
+                import torchaudio
+                torchaudio.save(output_path, final_audio, 24000)
+            else:
+                import soundfile as sf
+                sf.write(output_path, final_audio, 24000)
+
+            print(f"✅ Audio saved successfully")
             return True
 
         except Exception as e:
-            print(f"F5-TTS generation error: {e}")
+            print(f"❌ F5-TTS generation error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     async def start_processing_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
