@@ -55,7 +55,8 @@ class SupabaseClient:
             # Check if tables exist by querying them
             tables_to_check = [
                 'api_keys', 'youtube_channels', 'processed_videos',
-                'prompts', 'chat_configs', 'global_counter', 'audio_links'
+                'prompts', 'chat_configs', 'global_counter', 'audio_links',
+                'direct_script_audio'
             ]
 
             for table in tables_to_check:
@@ -143,6 +144,19 @@ CREATE TABLE IF NOT EXISTS audio_links (
 
 -- Create index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_audio_links_created ON audio_links (created_at DESC);
+
+-- Direct Script Audio Table (for raw audio storage)
+CREATE TABLE IF NOT EXISTS direct_script_audio (
+    id BIGSERIAL PRIMARY KEY,
+    filename TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    gofile_link TEXT,
+    file_size_mb REAL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create index for faster downloads
+CREATE INDEX IF NOT EXISTS idx_direct_script_audio_created ON direct_script_audio (created_at DESC);
 """
 
     # =============================================================================
@@ -530,4 +544,129 @@ CREATE INDEX IF NOT EXISTS idx_audio_links_created ON audio_links (created_at DE
             return True
         except Exception as e:
             print(f"❌ Error deleting audio link: {e}")
+            return False
+
+    # =============================================================================
+    # DIRECT SCRIPT RAW AUDIO STORAGE (Supabase Storage Integration)
+    # =============================================================================
+
+    def upload_raw_audio(self, file_path: str, bucket_name: str = "raw_audio_files") -> Optional[str]:
+        """
+        Upload raw audio file to Supabase Storage.
+        Returns storage path on success, None on failure.
+        """
+        if not self.is_connected():
+            return None
+
+        try:
+            import os
+            filename = os.path.basename(file_path)
+
+            # Read file
+            with open(file_path, 'rb') as f:
+                file_data = f.read()
+
+            # Upload to storage
+            storage_path = f"audio/{filename}"
+            result = self.client.storage.from_(bucket_name).upload(
+                path=storage_path,
+                file=file_data,
+                file_options={"content-type": "audio/wav"}
+            )
+
+            print(f"✅ Raw audio uploaded to Supabase Storage: {storage_path}")
+            return storage_path
+        except Exception as e:
+            print(f"❌ Error uploading raw audio to Supabase: {e}")
+            return None
+
+    def save_direct_script_audio(self, filename: str, storage_path: str,
+                                 gofile_link: Optional[str] = None,
+                                 file_size_mb: Optional[float] = None) -> bool:
+        """Save direct script audio metadata to database"""
+        if not self.is_connected():
+            return False
+
+        try:
+            self.client.table('direct_script_audio').insert({
+                'filename': filename,
+                'storage_path': storage_path,
+                'gofile_link': gofile_link,
+                'file_size_mb': file_size_mb,
+                'created_at': datetime.now().isoformat()
+            }).execute()
+            print(f"✅ Direct script audio metadata saved")
+            return True
+        except Exception as e:
+            print(f"❌ Error saving direct script audio: {e}")
+            return False
+
+    def get_pending_downloads(self) -> List[Dict]:
+        """Fetch all pending audio files to download from Supabase"""
+        if not self.is_connected():
+            return []
+
+        try:
+            result = self.client.table('direct_script_audio')\
+                .select('id, filename, storage_path, gofile_link, file_size_mb, created_at')\
+                .order('created_at', desc=False)\
+                .execute()
+
+            return result.data if result.data else []
+        except Exception as e:
+            print(f"❌ Error fetching pending downloads: {e}")
+            return []
+
+    def download_audio_file(self, storage_path: str, local_path: str,
+                           bucket_name: str = "raw_audio_files") -> bool:
+        """
+        Download audio file from Supabase Storage to local path.
+        Returns True on success, False on failure.
+        """
+        if not self.is_connected():
+            return False
+
+        try:
+            # Download from storage
+            result = self.client.storage.from_(bucket_name).download(storage_path)
+
+            # Save to local file
+            import os
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
+            with open(local_path, 'wb') as f:
+                f.write(result)
+
+            print(f"✅ Audio downloaded: {os.path.basename(local_path)}")
+            return True
+        except Exception as e:
+            print(f"❌ Error downloading audio: {e}")
+            return False
+
+    def delete_direct_script_audio(self, audio_id: int, storage_path: str,
+                                   bucket_name: str = "raw_audio_files") -> bool:
+        """
+        Delete audio file from both Supabase Storage and database.
+        Returns True if successful, False otherwise.
+        """
+        if not self.is_connected():
+            return False
+
+        try:
+            # Delete from storage
+            try:
+                self.client.storage.from_(bucket_name).remove([storage_path])
+                print(f"✅ Audio deleted from Supabase Storage: {storage_path}")
+            except Exception as e:
+                print(f"⚠️ Storage deletion warning: {e}")
+
+            # Delete from database
+            self.client.table('direct_script_audio')\
+                .delete()\
+                .eq('id', audio_id)\
+                .execute()
+            print(f"✅ Audio metadata deleted from database (ID: {audio_id})")
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting direct script audio: {e}")
             return False

@@ -5281,6 +5281,22 @@ class WorkingF5Bot:
             base = os.path.basename(p)
             size_mb = os.path.getsize(p)//(1024*1024) if os.path.exists(p) else 0
 
+            # Upload raw audio to Supabase for direct scripts (not channel automation)
+            if link and "generated_" in base and "_raw.wav" in base:
+                try:
+                    if self.supabase and self.supabase.is_connected():
+                        storage_path = self.supabase.upload_raw_audio(p)
+                        if storage_path:
+                            self.supabase.save_direct_script_audio(
+                                filename=base,
+                                storage_path=storage_path,
+                                gofile_link=link,
+                                file_size_mb=round(size_mb, 2)
+                            )
+                            print(f"✅ Raw audio saved to Supabase: {base}")
+                except Exception as e:
+                    print(f"⚠️ Supabase upload skipped: {e}")
+
             if link:
                 await context.bot.send_message(
                     chat_id=chat_id,
