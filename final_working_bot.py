@@ -2528,85 +2528,52 @@ class WorkingF5Bot:
                 # Fallback: use timestamp
                 counter = int(time.time()) % 10000
 
-            # Generate audio (use existing generate_audio method)
-            # Modify output path to use counter
-            base_output_path = os.path.join(OUTPUT_DIR, f"{counter}")
-
-            # Use existing audio generation logic but with custom filename
-            raw_output = f"{base_output_path}_raw.wav"
-            enhanced_output = f"{base_output_path}_enhanced.wav"
-
             # Generate audio using existing working method
-            await send_msg(f"🎵 Generating audio {counter}_raw.wav...")
+            await send_msg(f"🎵 Generating audio {counter}.wav...")
 
-            # Use existing generate_audio_f5 method (same as normal processing)
-            success, result = await self.generate_audio_f5(script, chat_id)
+            # Use existing generate_audio_f5 method with counter as filename
+            success, result = await self.generate_audio_f5(script, chat_id, f"{counter}.txt")
 
             if not success:
                 error_msg = result if isinstance(result, str) else "Unknown error"
                 await send_msg(f"❌ Audio generation failed: {error_msg}")
                 return []
 
-            # result contains list of output files from generate_audio_f5
-            # Move/rename the first file to our counter-based naming
+            # result contains list with raw audio file path
+            # It should already be named properly from generate_audio_f5
             if result and isinstance(result, list) and len(result) > 0:
-                first_file = result[0]
-                if os.path.exists(first_file):
-                    # Rename to counter-based name
-                    import shutil
-                    shutil.move(first_file, raw_output)
-                    print(f"✅ Renamed {first_file} → {raw_output}")
+                raw_output = result[0]
+                print(f"✅ Generated: {raw_output}")
+            else:
+                await send_msg(f"❌ No audio file generated")
+                return []
 
-            # Apply filters for enhanced version
-            await send_msg(f"🎛️ Creating enhanced version...")
-
-            # Create enhanced version using FFmpeg
-            try:
-                import subprocess
-                ffmpeg_enhance_cmd = [
-                    'ffmpeg', '-i', raw_output,
-                    '-af', self.ffmpeg_filter,
-                    '-y', enhanced_output
-                ]
-                subprocess.run(ffmpeg_enhance_cmd, capture_output=True, check=True, timeout=60)
-                print(f"✅ Enhanced audio created: {enhanced_output}")
-            except Exception as e:
-                print(f"⚠️ Enhanced audio creation failed: {e}")
-                # Use raw as fallback
-                import shutil
-                if os.path.exists(raw_output):
-                    shutil.copy(raw_output, enhanced_output)
-                    print(f"✅ Using raw audio as enhanced (fallback)")
-
-            # Upload both files
+            # Upload only raw audio (no enhanced version)
             links = []
+            await send_msg(f"📤 Uploading audio to Gofile...")
 
-            await send_msg(f"📤 Uploading audio files to Gofile...")
+            if os.path.exists(raw_output):
+                filename = os.path.basename(raw_output)
+                size_mb = os.path.getsize(raw_output) // (1024 * 1024)
 
-            for file_path in [raw_output, enhanced_output]:
-                if os.path.exists(file_path):
-                    filename = os.path.basename(file_path)
-                    size_mb = os.path.getsize(file_path) // (1024 * 1024)
+                print(f"📤 Uploading {filename} ({size_mb} MB)...")
 
-                    print(f"📤 Uploading {filename} ({size_mb} MB)...")
-                    await send_msg(f"📤 Uploading {filename}...")
+                # Upload to Gofile
+                link = await self.upload_single_to_gofile(raw_output)
 
-                    # Upload to Gofile
-                    link = await self.upload_single_to_gofile(file_path)
-
-                    if link:
-                        print(f"✅ Upload successful: {link}")
-                        # Send without parse_mode to avoid Markdown errors with URLs
-                        await send_msg(
-                            f"🔗 {filename} ({size_mb} MB)\n{link}"
-                        )
-                        links.append(link)
-                    else:
-                        print(f"❌ Upload failed for {filename}")
-                        await send_msg(f"⚠️ Failed to upload {filename}")
+                if link:
+                    print(f"✅ Upload successful: {link}")
+                    # Send without parse_mode to avoid Markdown errors with URLs
+                    await send_msg(
+                        f"🔗 {filename} ({size_mb} MB)\n{link}"
+                    )
+                    links.append(link)
                 else:
-                    print(f"❌ File not found: {file_path}")
-                    await send_msg(f"❌ File not found: {os.path.basename(file_path)}")
+                    print(f"❌ Upload failed for {filename}")
+                    await send_msg(f"⚠️ Failed to upload {filename}")
+            else:
+                print(f"❌ File not found: {raw_output}")
+                await send_msg(f"❌ File not found: {os.path.basename(raw_output)}")
 
             return links
 
@@ -4669,8 +4636,8 @@ class WorkingF5Bot:
                 
                 # Store chat ID for chunk updates
                 self._current_chat_id = actual_chat_id
-                # Audio generate kariye (pass chat id)
-                success, output_files = await self.generate_audio_f5(script_text, actual_chat_id)
+                # Audio generate kariye (pass chat id and filename)
+                success, output_files = await self.generate_audio_f5(script_text, actual_chat_id, filename)
                 # Cleanup chunk progress context
                 self._current_chat_id = None
                 
@@ -4764,7 +4731,7 @@ class WorkingF5Bot:
             except Exception as _e:
                 pass
     
-    async def generate_audio_f5(self, script_text, chat_id=None):
+    async def generate_audio_f5(self, script_text, chat_id=None, input_filename=None):
         """F5-TTS API with PC-like parameters and processing"""
         try:
             # Optional chat context for progress updates
@@ -4773,11 +4740,18 @@ class WorkingF5Bot:
             print(f"🔄 F5-TTS generation starting...")
             print(f"📝 Script length: {len(script_text)} characters")
             print(f"🎵 Reference: {self.reference_audio}")
-            
-            # Create output filename
-            timestamp = int(time.time())
-            base_output_path = os.path.join(OUTPUT_DIR, f"generated_{timestamp}")
-            raw_output = f"{base_output_path}_raw.wav"
+
+            # Create output filename based on input filename
+            if input_filename:
+                # Use input filename (without extension) as base
+                base_name = os.path.splitext(input_filename)[0]
+                # Remove any path components, keep just the name
+                base_name = os.path.basename(base_name)
+                raw_output = os.path.join(OUTPUT_DIR, f"{base_name}.wav")
+            else:
+                # Fallback to timestamp if no filename provided
+                timestamp = int(time.time())
+                raw_output = os.path.join(OUTPUT_DIR, f"generated_{timestamp}.wav")
             
             # Split text into chunks (configurable size)
             chunks = self.split_text_into_chunks(script_text, self.chunk_size)
@@ -4871,23 +4845,21 @@ class WorkingF5Bot:
                 import numpy as np
                 final_audio = np.concatenate(audio_segments)
             
-            # Save raw audio first
+            # Save raw audio only (no enhanced version)
             print(f"💾 Saving raw audio...")
             if torch.is_tensor(final_audio):
                 if final_audio.dim() == 1:
                     final_audio = final_audio.unsqueeze(0)
                 import torchaudio
                 torchaudio.save(raw_output, final_audio, 24000)
-                audio_array = final_audio.squeeze().numpy()
             else:
                 import soundfile as sf
                 sf.write(raw_output, final_audio, 24000)
-                audio_array = final_audio
-            
-            # Now create 4 versions like PC file
-            output_files = await self.create_audio_variants(base_output_path, audio_array)
-            
-            print(f"✅ Generated {len(output_files)} audio variants")
+
+            # Return only raw audio file
+            output_files = [raw_output]
+
+            print(f"✅ Generated raw audio: {raw_output}")
             return True, output_files
                 
         except Exception as e:
@@ -4932,43 +4904,7 @@ class WorkingF5Bot:
         
         return chunks
     
-    async def create_audio_variants(self, base_path, audio_array):
-        """Create 2 audio variants: Raw and Enhanced (using ffmpeg filter)"""
-        import numpy as np
-        import subprocess
-        import soundfile as sf
-        
-        output_files = []
-        
-        try:
-            # 1. Raw audio (already saved)
-            raw_file = f"{base_path}_raw.wav"
-            output_files.append(raw_file)
-            
-            # 2. Enhanced audio with ffmpeg filter
-            enhanced_file = f"{base_path}_enhanced.wav"
-            ffmpeg_enhance_cmd = [
-                'ffmpeg', '-i', raw_file,
-                '-af', self.ffmpeg_filter,
-                '-y', enhanced_file
-            ]
-            
-            try:
-                subprocess.run(ffmpeg_enhance_cmd, capture_output=True, check=True, timeout=60)
-                output_files.append(enhanced_file)
-                print("Enhanced audio created")
-            except Exception as e:
-                print(f"Enhanced audio creation failed: {e}")
-                # Use raw as fallback
-                import shutil
-                shutil.copy(raw_file, enhanced_file)
-                output_files.append(enhanced_file)
-            
-            return output_files
-            
-        except Exception as e:
-            print(f"Audio variants creation error: {e}")
-            return [raw_file] if os.path.exists(raw_file) else []
+    # create_audio_variants function removed - only raw audio is generated now
 
     async def send_audio_variants(self, context, file_paths, script_text, chat_id=None, filename="Generated Audio"):
         """
