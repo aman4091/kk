@@ -1,4 +1,34 @@
 #!/usr/bin/env python3
+"""
+F5-TTS Telegram Bot - Final Working Version
+============================================
+
+CRITICAL REQUIREMENTS:
+---------------------
+- PyTorch 2.6.0+cu118 (DO NOT use 2.7.x - breaks F5-TTS pipeline)
+- Python 3.10+
+- CUDA 11.8
+- FFmpeg
+
+INSTALLATION FIX (if bot fails with "Could not import module 'pipeline'"):
+---------------------------------------------------------------------------
+pip uninstall torch torchaudio torchvision -y
+pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 torchvision==0.21.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+pip uninstall f5-tts -y
+pip install git+https://github.com/SWivid/F5-TTS.git
+
+DEPENDENCIES:
+-------------
+- python-telegram-bot
+- openai-whisper
+- f5-tts
+- supabase>=2.0.0
+- google-api-python-client>=2.108.0
+- httpx>=0.24.0
+- isodate>=0.6.1
+- yt-dlp, librosa, soundfile, etc.
+"""
+
 import os
 import json
 import asyncio

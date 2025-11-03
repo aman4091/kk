@@ -189,6 +189,37 @@ def setup_environment():
 
     print("\n" + "🐍 STEP 5: PYTHON PACKAGES")
 
+    # CRITICAL: Downgrade PyTorch to 2.6.0 if needed (2.7.x breaks F5-TTS pipeline)
+    print("🔍 Checking PyTorch version...")
+    result = subprocess.run(
+        "python3 -c 'import torch; print(torch.__version__)'",
+        shell=True,
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode == 0:
+        current_version = result.stdout.strip()
+        print(f"✅ Current PyTorch version: {current_version}")
+
+        # Check if version is 2.7.x or higher
+        if current_version.startswith('2.7') or current_version.startswith('2.8'):
+            print("⚠️ PyTorch 2.7+ detected - downgrading to 2.6.0 for F5-TTS compatibility...")
+            run_command(
+                "pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 torchvision==0.21.0+cu118 --index-url https://download.pytorch.org/whl/cu118",
+                "Downgrading PyTorch to 2.6.0",
+                check=False
+            )
+        else:
+            print("✅ PyTorch version is compatible")
+    else:
+        print("⚠️ PyTorch not found - installing 2.6.0...")
+        run_command(
+            "pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 torchvision==0.21.0+cu118 --index-url https://download.pytorch.org/whl/cu118",
+            "Installing PyTorch 2.6.0",
+            check=False
+        )
+
     packages = [
         "python-telegram-bot",
         "requests",
