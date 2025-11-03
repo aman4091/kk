@@ -2563,6 +2563,15 @@ class WorkingF5Bot:
 
                 if link:
                     print(f"✅ Upload successful: {link}")
+
+                    # Upload to Google Drive in background
+                    gdrive_folder = os.getenv("GDRIVE_FOLDER_LONG")
+                    if gdrive_folder:
+                        try:
+                            await self.upload_to_google_drive(raw_output, gdrive_folder)
+                        except Exception as e:
+                            print(f"⚠️ Google Drive upload failed (non-blocking): {e}")
+
                     # Send without parse_mode to avoid Markdown errors with URLs
                     await send_msg(
                         f"🔗 {filename} ({size_mb} MB)\n{link}"
@@ -5164,6 +5173,66 @@ class WorkingF5Bot:
         print(f"❌ GoFile single-upload error: {last_err}")
         return None
 
+    async def upload_to_google_drive(self, file_path: str, folder_id: str = None) -> Optional[str]:
+        """
+        Upload file to Google Drive
+        Returns: Google Drive file ID or None on failure
+        """
+        try:
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaFileUpload
+            from google.oauth2.credentials import Credentials
+            import pickle
+            import os
+
+            # Check if token.pickle exists
+            token_path = "token.pickle"
+            if not os.path.exists(token_path):
+                print(f"⚠️ Google Drive token.pickle not found - skipping upload")
+                return None
+
+            # Load credentials from token.pickle
+            with open(token_path, 'rb') as token:
+                creds = pickle.load(token)
+
+            # Build Drive service
+            service = build('drive', 'v3', credentials=creds)
+
+            # Prepare file metadata
+            file_metadata = {
+                'name': os.path.basename(file_path)
+            }
+
+            # Add to specific folder if provided
+            if folder_id:
+                file_metadata['parents'] = [folder_id]
+
+            # Upload file
+            media = MediaFileUpload(file_path, resumable=True)
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id, webViewLink'
+            ).execute()
+
+            file_id = file.get('id')
+            web_link = file.get('webViewLink', f"https://drive.google.com/file/d/{file_id}/view")
+
+            print(f"✅ Uploaded to Google Drive: {os.path.basename(file_path)}")
+            print(f"   Link: {web_link}")
+
+            return file_id
+
+        except ImportError as e:
+            print(f"⚠️ Google Drive libraries not installed: {e}")
+            print(f"   Install with: pip install google-api-python-client google-auth")
+            return None
+        except Exception as e:
+            print(f"❌ Google Drive upload error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def _classify_variant(self, path: str) -> str:
         p = path.lower()
         if p.endswith(".mp3"):
@@ -5248,6 +5317,14 @@ class WorkingF5Bot:
             size_mb = os.path.getsize(p)//(1024*1024) if os.path.exists(p) else 0
 
             if link:
+                # Upload to Google Drive in background (parallel)
+                gdrive_folder = os.getenv("GDRIVE_FOLDER_LONG")  # Default folder
+                if gdrive_folder:
+                    try:
+                        await self.upload_to_google_drive(p, gdrive_folder)
+                    except Exception as e:
+                        print(f"⚠️ Google Drive upload failed (non-blocking): {e}")
+
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=f"🔗 {base} ({size_mb}MB)\n{link}"
