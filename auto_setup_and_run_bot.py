@@ -230,6 +230,14 @@ def setup_environment():
             check=False
         )
 
+    # CRITICAL: Remove torchcodec (conflicts with F5-TTS)
+    print("\n🔧 Removing conflicting torchcodec package...")
+    run_command(
+        "pip uninstall torchcodec -y",
+        "Uninstalling torchcodec (causes libavutil.so errors)",
+        check=False
+    )
+
     packages = [
         "python-telegram-bot",
         "requests",
