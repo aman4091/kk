@@ -17,19 +17,52 @@ import os
 import pickle
 from google.oauth2.credentials import Credentials
 
-# Your Google OAuth credentials (from environment or p.py)
-# DO NOT hardcode credentials in git! Use environment variables:
-GDRIVE_TOKEN_INFO = {
-    "refresh_token": os.getenv("GDRIVE_REFRESH_TOKEN", "YOUR_REFRESH_TOKEN_HERE"),
-    "client_id": os.getenv("GDRIVE_CLIENT_ID", "YOUR_CLIENT_ID_HERE"),
-    "client_secret": os.getenv("GDRIVE_CLIENT_SECRET", "YOUR_CLIENT_SECRET_HERE"),
-    "scopes": ["https://www.googleapis.com/auth/drive"]
-}
+# Get credentials from p.py's embedded GDRIVE_TOKEN_INFO
+# Since p.py is not in git, we extract from it if available
+def get_credentials_from_ppy():
+    """Try to extract credentials from p.py file"""
+    import sys
+    import importlib.util
+
+    # Try to find p.py
+    ppy_paths = ['../p.py', 'p.py', '/workspace/p.py']
+
+    for path in ppy_paths:
+        if os.path.exists(path):
+            try:
+                spec = importlib.util.spec_from_file_location("ppy_module", path)
+                ppy = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(ppy)
+
+                if hasattr(ppy, 'GDRIVE_TOKEN_INFO'):
+                    return ppy.GDRIVE_TOKEN_INFO
+            except Exception as e:
+                print(f"⚠️ Could not load from {path}: {e}")
+
+    return None
 
 def main():
     print("\n" + "="*60)
     print("🔧 Google Drive Token Regenerator")
     print("="*60 + "\n")
+
+    # Try to get credentials from p.py
+    print("🔍 Looking for credentials...")
+    GDRIVE_TOKEN_INFO = get_credentials_from_ppy()
+
+    if not GDRIVE_TOKEN_INFO:
+        print("❌ Could not find p.py or extract credentials!")
+        print("\n⚠️ This script needs access to p.py file")
+        print("\n💡 Solutions:")
+        print("   1. Run this from same directory as p.py")
+        print("   2. Or manually edit this script and add credentials")
+        print("   3. Or set environment variables:")
+        print("      export GDRIVE_REFRESH_TOKEN='your_token'")
+        print("      export GDRIVE_CLIENT_ID='your_client_id'")
+        print("      export GDRIVE_CLIENT_SECRET='your_secret'\n")
+        return
+
+    print("✅ Found credentials from p.py")
 
     # Check if token.pickle exists
     if os.path.exists('token.pickle'):
