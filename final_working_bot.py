@@ -5464,8 +5464,12 @@ class WorkingF5Bot:
             size_mb = os.path.getsize(p)//(1024*1024) if os.path.exists(p) else 0
 
             if link:
-                # Upload to Google Drive (only for direct script audio, not channels)
-                if "generated_" in base:  # Direct script audio (not channel automation)
+                # Upload to Google Drive (skip only channel automation files)
+                # Channel files: 1_raw.wav, 2_raw.wav, etc. (counter-based naming)
+                # Regular files: generated_xxx or input_filename based
+                is_channel_file = base.split('_')[0].isdigit()  # e.g., "1_raw.wav" starts with digit
+
+                if not is_channel_file:  # Upload all non-channel files
                     try:
                         await context.bot.send_message(chat_id=chat_id, text="☁️ Uploading to Google Drive...")
                         gdrive_file_id = await self.upload_to_google_drive(p)
