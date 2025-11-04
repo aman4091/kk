@@ -2042,6 +2042,92 @@ class WorkingF5Bot:
 
         except Exception as e:
             await update.message.reply_text(f"❌ Error listing keys: {str(e)}")
+
+    # =============================================================================
+    # DEFAULT REFERENCE AUDIO COMMANDS
+    # =============================================================================
+
+    async def set_default_reference_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Set current session reference as default master reference (save to Supabase)"""
+        try:
+            if not self.supabase.is_connected():
+                await update.message.reply_text(
+                    "⚠️ Supabase not connected!\n\n"
+                    "Use /set_supabase_url and /set_supabase_key to connect."
+                )
+                return
+
+            # Check if current reference exists
+            if not self.reference_audio or not os.path.exists(self.reference_audio):
+                await update.message.reply_text(
+                    "⚠️ No reference audio loaded in current session!\n\n"
+                    "First send a YouTube link to set temporary reference, "
+                    "then use this command to make it permanent."
+                )
+                return
+
+            await update.message.reply_text("⏳ Uploading reference to Supabase...")
+
+            # Upload to Supabase Storage
+            storage_path = self.supabase.upload_default_reference(self.reference_audio)
+
+            if not storage_path:
+                await update.message.reply_text("❌ Failed to upload reference to Supabase Storage")
+                return
+
+            # Save metadata
+            filename = os.path.basename(self.reference_audio)
+            success = self.supabase.save_default_reference_metadata(filename, storage_path)
+
+            if success:
+                await update.message.reply_text(
+                    f"✅ **Default Reference Set!**\n\n"
+                    f"📁 File: `{filename}`\n"
+                    f"☁️ Saved to: Supabase Storage\n\n"
+                    f"💡 This reference will auto-download on all new Vast.ai instances when you run p.py",
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text("❌ Failed to save metadata to database")
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error setting default reference: {str(e)}")
+
+    async def get_default_reference_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Get info about current default master reference"""
+        try:
+            if not self.supabase.is_connected():
+                await update.message.reply_text(
+                    "⚠️ Supabase not connected!\n\n"
+                    "Use /set_supabase_url and /set_supabase_key to connect."
+                )
+                return
+
+            ref_data = self.supabase.get_default_reference()
+
+            if not ref_data:
+                await update.message.reply_text(
+                    "⚠️ **No default reference set**\n\n"
+                    "To set one:\n"
+                    "1. Send a YouTube link to load reference\n"
+                    "2. Use /set_default_reference to make it permanent",
+                    parse_mode="Markdown"
+                )
+                return
+
+            message = (
+                f"✅ **Default Reference Audio**\n\n"
+                f"📁 File: `{ref_data['filename']}`\n"
+                f"☁️ Storage: `{ref_data['storage_path']}`\n"
+                f"📅 Uploaded: {ref_data['uploaded_at'][:19]}\n\n"
+                f"💡 This will auto-download when you run p.py on Vast.ai"
+            )
+
+            await update.message.reply_text(message, parse_mode="Markdown")
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error getting default reference: {str(e)}")
+
 # YouTube Channel Processing Pipeline
 # Add this method to WorkingF5Bot class
 
@@ -5702,6 +5788,9 @@ async def async_main():
     application.add_handler(CommandHandler("set_deepseek_key", bot_instance.set_deepseek_key_command))
     application.add_handler(CommandHandler("set_channel_prompt", bot_instance.set_channel_prompt_command))
     application.add_handler(CommandHandler("list_keys", bot_instance.list_keys_command))
+    # Reference Audio Management
+    application.add_handler(CommandHandler("set_default_reference", bot_instance.set_default_reference_command))
+    application.add_handler(CommandHandler("get_default_reference", bot_instance.get_default_reference_command))
 
     # All other commands accessible via Settings menu:
     # - Test: Settings > Debug Tools > Run Test

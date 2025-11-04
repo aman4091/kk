@@ -157,6 +157,15 @@ CREATE TABLE IF NOT EXISTS direct_script_audio (
 
 -- Create index for faster downloads
 CREATE INDEX IF NOT EXISTS idx_direct_script_audio_created ON direct_script_audio (created_at DESC);
+
+-- Default Reference Audio Table (for master reference audio)
+CREATE TABLE IF NOT EXISTS default_reference_audio (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    filename TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+    CHECK (id = 1)  -- Ensure only one row (single master reference)
+);
 """
 
     # =============================================================================
@@ -669,4 +678,122 @@ CREATE INDEX IF NOT EXISTS idx_direct_script_audio_created ON direct_script_audi
             return True
         except Exception as e:
             print(f"❌ Error deleting direct script audio: {e}")
+            return False
+
+    # =============================================================================
+    # DEFAULT REFERENCE AUDIO MANAGEMENT
+    # =============================================================================
+
+    def upload_default_reference(self, file_path: str, bucket_name: str = "reference_audio") -> Optional[str]:
+        """
+        Upload default reference audio to Supabase Storage.
+        This will be the master reference for all instances.
+        Returns storage path on success, None on failure.
+        """
+        if not self.is_connected():
+            return None
+
+        try:
+            import os
+            filename = os.path.basename(file_path)
+
+            # Read file
+            with open(file_path, 'rb') as f:
+                file_data = f.read()
+
+            # Upload to storage
+            storage_path = f"default/{filename}"
+
+            # Delete old file if exists (replace)
+            try:
+                self.client.storage.from_(bucket_name).remove([storage_path])
+            except:
+                pass  # Ignore if doesn't exist
+
+            result = self.client.storage.from_(bucket_name).upload(
+                path=storage_path,
+                file=file_data,
+                file_options={"content-type": "audio/wav", "upsert": "true"}
+            )
+
+            print(f"✅ Default reference uploaded to Supabase Storage: {storage_path}")
+            return storage_path
+        except Exception as e:
+            print(f"❌ Error uploading default reference to Supabase: {e}")
+            return None
+
+    def save_default_reference_metadata(self, filename: str, storage_path: str) -> bool:
+        """
+        Save default reference audio metadata to database.
+        Only one row will exist (master reference).
+        """
+        if not self.is_connected():
+            return False
+
+        try:
+            # Upsert (replace if exists)
+            self.client.table('default_reference_audio').upsert({
+                'id': 1,
+                'filename': filename,
+                'storage_path': storage_path,
+                'uploaded_at': datetime.now().isoformat()
+            }).execute()
+            print(f"✅ Default reference metadata saved")
+            return True
+        except Exception as e:
+            print(f"❌ Error saving default reference metadata: {e}")
+            return False
+
+    def get_default_reference(self) -> Optional[Dict]:
+        """
+        Get default reference audio metadata from database.
+        Returns dict with filename and storage_path, or None if not set.
+        """
+        if not self.is_connected():
+            return None
+
+        try:
+            result = self.client.table('default_reference_audio')\
+                .select('filename, storage_path, uploaded_at')\
+                .eq('id', 1)\
+                .execute()
+
+            if result.data:
+                return result.data[0]
+            return None
+        except Exception as e:
+            print(f"❌ Error getting default reference: {e}")
+            return None
+
+    def download_default_reference(self, local_path: str, bucket_name: str = "reference_audio") -> bool:
+        """
+        Download default reference audio from Supabase Storage to local path.
+        Returns True on success, False on failure.
+        """
+        if not self.is_connected():
+            return False
+
+        try:
+            # Get metadata first
+            ref_data = self.get_default_reference()
+            if not ref_data:
+                print("⚠️ No default reference audio set")
+                return False
+
+            storage_path = ref_data['storage_path']
+
+            # Download from storage
+            result = self.client.storage.from_(bucket_name).download(storage_path)
+
+            # Save to local file
+            import os
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
+            with open(local_path, 'wb') as f:
+                f.write(result)
+
+            print(f"✅ Default reference downloaded: {os.path.basename(local_path)}")
+            return True
+        except Exception as e:
+            print(f"❌ Error downloading default reference: {e}")
             return False
