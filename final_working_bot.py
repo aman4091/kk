@@ -47,6 +47,7 @@ import shutil
 import subprocess
 import re
 from dotenv import load_dotenv
+from typing import Optional
 
 # New imports for YouTube Channel Automation
 from supabase_client import SupabaseClient
