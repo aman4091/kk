@@ -5224,18 +5224,32 @@ class WorkingF5Bot:
             from googleapiclient.http import MediaFileUpload
             from google.auth.transport.requests import Request
 
-            # Load credentials
+            # Load credentials - Check multiple possible locations
             creds = None
-            if os.path.exists('token.pickle'):
-                with open('token.pickle', 'rb') as token:
+            token_paths = [
+                'token.pickle',                          # Current directory
+                '../token.pickle',                       # Parent directory
+                os.path.join(os.path.dirname(__file__), 'token.pickle'),  # Script directory
+            ]
+
+            token_file = None
+            for path in token_paths:
+                if os.path.exists(path):
+                    token_file = path
+                    print(f"✅ Found token.pickle at: {path}")
+                    break
+
+            if token_file:
+                with open(token_file, 'rb') as token:
                     creds = pickle.load(token)
 
             # Refresh if needed
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
-                # Save refreshed token
-                with open('token.pickle', 'wb') as token:
-                    pickle.dump(creds, token)
+                # Save refreshed token back to same location
+                if token_file:
+                    with open(token_file, 'wb') as token:
+                        pickle.dump(creds, token)
 
             if not creds:
                 print("⚠️ Google Drive credentials not found")
