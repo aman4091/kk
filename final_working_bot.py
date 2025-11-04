@@ -5245,14 +5245,28 @@ class WorkingF5Bot:
 
             # Refresh if needed
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-                # Save refreshed token back to same location
-                if token_file:
-                    with open(token_file, 'wb') as token:
-                        pickle.dump(creds, token)
+                try:
+                    print("🔄 Refreshing expired Google Drive token...")
+                    creds.refresh(Request())
+                    # Save refreshed token back to same location
+                    if token_file:
+                        with open(token_file, 'wb') as token:
+                            pickle.dump(creds, token)
+                        print("✅ Token refreshed and saved")
+                except Exception as refresh_error:
+                    print(f"❌ Token refresh failed: {refresh_error}")
+                    print("⚠️ Token may be revoked. Please regenerate token.pickle")
+                    return None
 
             if not creds:
                 print("⚠️ Google Drive credentials not found")
+                return None
+
+            # Check if credentials are valid
+            if not creds.valid:
+                print("⚠️ Google Drive credentials are invalid")
+                print("   Token may be expired or revoked")
+                print("   Please regenerate token.pickle with fresh OAuth flow")
                 return None
 
             # Build service
