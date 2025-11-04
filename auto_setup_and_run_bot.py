@@ -202,12 +202,22 @@ def setup_environment():
         current_version = result.stdout.strip()
         print(f"✅ Current PyTorch version: {current_version}")
 
-        # Check if version is 2.7.x or higher
+        # Check if version needs reinstall (2.7+, or wrong CUDA version like cu124)
+        needs_reinstall = False
         if current_version.startswith('2.7') or current_version.startswith('2.8'):
             print("⚠️ PyTorch 2.7+ detected - downgrading to 2.6.0 for F5-TTS compatibility...")
+            needs_reinstall = True
+        elif 'cu124' in current_version or 'cu121' in current_version or 'cu126' in current_version:
+            print(f"⚠️ Wrong CUDA version detected ({current_version}) - reinstalling with cu118...")
+            needs_reinstall = True
+        elif not ('2.6.0' in current_version and 'cu118' in current_version):
+            print(f"⚠️ Non-optimal PyTorch version - reinstalling 2.6.0+cu118...")
+            needs_reinstall = True
+
+        if needs_reinstall:
             run_command(
-                "pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 torchvision==0.21.0+cu118 --index-url https://download.pytorch.org/whl/cu118",
-                "Downgrading PyTorch to 2.6.0",
+                "pip uninstall torch torchaudio torchvision -y && pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 torchvision==0.21.0+cu118 --index-url https://download.pytorch.org/whl/cu118",
+                "Reinstalling PyTorch 2.6.0+cu118",
                 check=False
             )
         else:
