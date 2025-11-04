@@ -189,52 +189,11 @@ def setup_environment():
 
     print("\n" + "🐍 STEP 5: PYTHON PACKAGES")
 
-    # CRITICAL: Downgrade PyTorch to 2.6.0 if needed (2.7.x breaks F5-TTS pipeline)
-    print("🔍 Checking PyTorch version...")
-    result = subprocess.run(
-        "python3 -c 'import torch; print(torch.__version__)'",
-        shell=True,
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode == 0:
-        current_version = result.stdout.strip()
-        print(f"✅ Current PyTorch version: {current_version}")
-
-        # Check if version needs reinstall (2.7+, or wrong CUDA version like cu124)
-        needs_reinstall = False
-        if current_version.startswith('2.7') or current_version.startswith('2.8'):
-            print("⚠️ PyTorch 2.7+ detected - downgrading to 2.6.0 for F5-TTS compatibility...")
-            needs_reinstall = True
-        elif 'cu124' in current_version or 'cu121' in current_version or 'cu126' in current_version:
-            print(f"⚠️ Wrong CUDA version detected ({current_version}) - reinstalling with cu118...")
-            needs_reinstall = True
-        elif not ('2.6.0' in current_version and 'cu118' in current_version):
-            print(f"⚠️ Non-optimal PyTorch version - reinstalling 2.6.0+cu118...")
-            needs_reinstall = True
-
-        if needs_reinstall:
-            run_command(
-                "pip uninstall torch torchaudio torchvision -y && pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 torchvision==0.21.0+cu118 --index-url https://download.pytorch.org/whl/cu118",
-                "Reinstalling PyTorch 2.6.0+cu118",
-                check=False
-            )
-        else:
-            print("✅ PyTorch version is compatible")
-    else:
-        print("⚠️ PyTorch not found - installing 2.6.0...")
-        run_command(
-            "pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 torchvision==0.21.0+cu118 --index-url https://download.pytorch.org/whl/cu118",
-            "Installing PyTorch 2.6.0",
-            check=False
-        )
-
-    # CRITICAL: Remove torchcodec (conflicts with F5-TTS)
-    print("\n🔧 Removing conflicting torchcodec package...")
+    # CRITICAL: Install PyTorch 2.6.0 first (2.7.x breaks F5-TTS pipeline)
+    print("🔥 Installing PyTorch 2.6.0+cu118 (compatible with F5-TTS)...")
     run_command(
-        "pip uninstall torchcodec -y",
-        "Uninstalling torchcodec (causes libavutil.so errors)",
+        "pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 --index-url https://download.pytorch.org/whl/cu118",
+        "Installing PyTorch 2.6.0",
         check=False
     )
 
