@@ -5213,6 +5213,71 @@ class WorkingF5Bot:
             print(f"❌ GoFile multi-upload error: {e}")
             return None
 
+    async def upload_to_google_drive(self, file_path):
+        """
+        Upload file to Google Drive (for direct script audio only).
+        Returns Google Drive file ID on success, None on failure.
+        """
+        try:
+            import pickle
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaFileUpload
+            from google.auth.transport.requests import Request
+
+            # Load credentials
+            creds = None
+            if os.path.exists('token.pickle'):
+                with open('token.pickle', 'rb') as token:
+                    creds = pickle.load(token)
+
+            # Refresh if needed
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                # Save refreshed token
+                with open('token.pickle', 'wb') as token:
+                    pickle.dump(creds, token)
+
+            if not creds:
+                print("⚠️ Google Drive credentials not found")
+                return None
+
+            # Build service
+            service = build('drive', 'v3', credentials=creds)
+
+            # Get folder ID from environment
+            folder_id = os.getenv('GDRIVE_FOLDER_ID')
+            if not folder_id:
+                print("⚠️ GDRIVE_FOLDER_ID not set")
+                return None
+
+            # Prepare file metadata
+            file_name = os.path.basename(file_path)
+            file_metadata = {
+                'name': file_name,
+                'parents': [folder_id]
+            }
+
+            # Upload file
+            media = MediaFileUpload(file_path, mimetype='audio/wav', resumable=True)
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id,name,webViewLink'
+            ).execute()
+
+            file_id = file.get('id')
+            web_link = file.get('webViewLink')
+
+            print(f"✅ Google Drive upload: {file_name}")
+            print(f"   File ID: {file_id}")
+            print(f"   Link: {web_link}")
+
+            return file_id
+
+        except Exception as e:
+            print(f"❌ Google Drive upload error: {e}")
+            return None
+
     async def upload_single_to_gofile(self, file_path):
         """
         Upload exactly one file to GoFile and return its download page URL.
@@ -5368,6 +5433,20 @@ class WorkingF5Bot:
             size_mb = os.path.getsize(p)//(1024*1024) if os.path.exists(p) else 0
 
             if link:
+                # Upload to Google Drive (only for direct script audio, not channels)
+                if "generated_" in base:  # Direct script audio (not channel automation)
+                    try:
+                        await context.bot.send_message(chat_id=chat_id, text="☁️ Uploading to Google Drive...")
+                        gdrive_file_id = await self.upload_to_google_drive(p)
+                        if gdrive_file_id:
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=f"✅ Uploaded to Google Drive\n📁 File ID: `{gdrive_file_id}`",
+                                parse_mode="Markdown"
+                            )
+                    except Exception as e:
+                        print(f"⚠️ Google Drive upload skipped: {e}")
+
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=f"🔗 {base} ({size_mb}MB)\n{link}"
