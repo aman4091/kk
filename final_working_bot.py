@@ -4725,8 +4725,8 @@ class WorkingF5Bot:
                 
                 # Store chat ID for chunk updates
                 self._current_chat_id = actual_chat_id
-                # Audio generate kariye (pass chat id)
-                success, output_files = await self.generate_audio_f5(script_text, actual_chat_id)
+                # Audio generate kariye (pass chat id and filename)
+                success, output_files = await self.generate_audio_f5(script_text, actual_chat_id, input_filename=filename)
                 # Cleanup chunk progress context
                 self._current_chat_id = None
                 
@@ -4820,7 +4820,7 @@ class WorkingF5Bot:
             except Exception as _e:
                 pass
     
-    async def generate_audio_f5(self, script_text, chat_id=None):
+    async def generate_audio_f5(self, script_text, chat_id=None, input_filename=None):
         """F5-TTS API with PC-like parameters and processing"""
         try:
             # Optional chat context for progress updates
@@ -4829,10 +4829,19 @@ class WorkingF5Bot:
             print(f"🔄 F5-TTS generation starting...")
             print(f"📝 Script length: {len(script_text)} characters")
             print(f"🎵 Reference: {self.reference_audio}")
-            
-            # Create output filename
-            timestamp = int(time.time())
-            base_output_path = os.path.join(OUTPUT_DIR, f"generated_{timestamp}")
+
+            # Create output filename based on input file or timestamp
+            if input_filename:
+                # Extract clean name: "my_script_1234567890.txt" -> "my_script"
+                clean_name = input_filename.replace('.txt', '').rsplit('_', 1)[0]
+                base_output_path = os.path.join(OUTPUT_DIR, clean_name)
+                print(f"📁 Using input filename: {clean_name}")
+            else:
+                # Fallback for direct text messages
+                timestamp = int(time.time())
+                base_output_path = os.path.join(OUTPUT_DIR, f"generated_{timestamp}")
+                print(f"📁 Using timestamp-based naming: generated_{timestamp}")
+
             raw_output = f"{base_output_path}_raw.wav"
             
             # Split text into chunks (configurable size)
