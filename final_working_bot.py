@@ -5262,14 +5262,8 @@ class WorkingF5Bot:
                 print("⚠️ Google Drive credentials not found")
                 return None
 
-            # Check if credentials are valid
-            if not creds.valid:
-                print("⚠️ Google Drive credentials are invalid")
-                print("   Token may be expired or revoked")
-                print("   Please regenerate token.pickle with fresh OAuth flow")
-                return None
-
-            # Build service
+            # Build service - Google API will auto-refresh token if needed
+            print("🔗 Connecting to Google Drive...")
             service = build('drive', 'v3', credentials=creds)
 
             # Get folder ID from environment
