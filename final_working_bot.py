@@ -856,17 +856,35 @@ class WorkingF5Bot:
             # Update reference
             self.reference_audio = cropped_path
             self.reference_text = new_ref_text
-            
-            # Clear F5-TTS cache
-            if hasattr(self.f5_model, '_cached_ref_audio'):
-                delattr(self.f5_model, '_cached_ref_audio')
-            if hasattr(self.f5_model, '_cached_ref_text'):
-                delattr(self.f5_model, '_cached_ref_text')
-            
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            import gc
-            gc.collect()
+
+            # CRITICAL: Reload F5-TTS model to clear internal reference cache
+            # F5-TTS library caches ref_file internally on first infer() call
+            # Simply clearing attributes doesn't work - must reinitialize
+            print("🔄 Reloading F5-TTS model to apply new reference...")
+            try:
+                # Delete old model instance
+                if self.f5_model:
+                    del self.f5_model
+
+                # Clear GPU memory
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                import gc
+                gc.collect()
+
+                # Reinitialize F5-TTS
+                from f5_tts.api import F5TTS
+                self.f5_model = F5TTS()
+                print("✅ F5-TTS model reloaded with new reference")
+
+            except Exception as reload_error:
+                print(f"⚠️ F5-TTS reload error: {reload_error}")
+                # Fallback: try clearing cache attributes
+                if hasattr(self.f5_model, '_cached_ref_audio'):
+                    delattr(self.f5_model, '_cached_ref_audio')
+                if hasattr(self.f5_model, '_cached_ref_text'):
+                    delattr(self.f5_model, '_cached_ref_text')
             
             print(f"✅ Reference audio updated successfully!")
             
@@ -1664,6 +1682,25 @@ class WorkingF5Bot:
                 self.reference_text = new_ref_text
 
                 print(f"✅ Reference updated from {old_ref} to {filename}")
+
+                # CRITICAL: Reload F5-TTS model to clear internal reference cache
+                print("🔄 Reloading F5-TTS model to apply new reference...")
+                try:
+                    if self.f5_model:
+                        del self.f5_model
+
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                    import gc
+                    gc.collect()
+
+                    from f5_tts.api import F5TTS
+                    self.f5_model = F5TTS()
+                    print("✅ F5-TTS model reloaded")
+
+                except Exception as reload_error:
+                    print(f"⚠️ F5-TTS reload error: {reload_error}")
 
                 await send_message(
                     f"✅ Reference audio updated!\n\n"
