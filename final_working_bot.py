@@ -1619,17 +1619,47 @@ class WorkingF5Bot:
                     return
                 self.reference_audio = new_reference
                 print(f"✅ Reference audio: {self.reference_audio}")
-                
+
                 # Whisper load kariye aur text extract kariye (CPU)
                 print("🔄 Loading Whisper for reference text (CPU)...")
                 self.whisper_model = whisper.load_model("base", device="cpu")
-                
+
                 result = self.whisper_model.transcribe(self.reference_audio)
                 self.reference_text = result["text"].strip()
                 print(f"✅ Reference text: {self.reference_text[:100]}...")
             else:
                 print("⚠️ No reference audio found in reference folder")
-                
+                print("🔍 Checking Supabase for default reference...")
+
+                # Try to load from Supabase
+                if self.supabase.is_connected():
+                    try:
+                        ref_data = self.supabase.get_default_reference()
+                        if ref_data and 'audio_url' in ref_data:
+                            # Download reference from URL
+                            audio_url = ref_data['audio_url']
+                            ref_text = ref_data.get('ref_text', '')
+
+                            print(f"📥 Downloading reference from Supabase...")
+                            response = requests.get(audio_url, timeout=60)
+
+                            if response.status_code == 200:
+                                # Save to reference folder
+                                ref_filename = os.path.join(REFERENCE_DIR, "supabase_default.wav")
+                                with open(ref_filename, 'wb') as f:
+                                    f.write(response.content)
+
+                                self.reference_audio = ref_filename
+                                self.reference_text = ref_text
+                                print(f"✅ Reference loaded from Supabase: {ref_filename}")
+                                print(f"📝 Reference text: {ref_text[:100]}...")
+                            else:
+                                print(f"❌ Failed to download reference: HTTP {response.status_code}")
+                        else:
+                            print("⚠️ No default reference found in Supabase")
+                    except Exception as supabase_error:
+                        print(f"⚠️ Could not load reference from Supabase: {supabase_error}")
+
         except Exception as e:
             print(f"❌ Reference load error: {e}")
     
