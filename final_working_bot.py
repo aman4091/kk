@@ -139,6 +139,9 @@ class WorkingF5Bot:
         # Title generation state tracking
         self.title_generation_state = {}  # {chat_id: {'stage': 'initial'/'refine1'/'refine2', 'title': '...', 'script': '...'}}
 
+        # YouTube Channel processing settings
+        self.max_channel_videos = 6  # Default: 6 videos per channel
+
         # Configuration file
         self.config_file = "bot_config.json"
 
@@ -344,6 +347,7 @@ class WorkingF5Bot:
             with open(self.config_file, 'r') as f:
                 config = json.load(f)
                 self.deepseek_prompt = config.get('deepseek_prompt', "Rewrite this content to be more engaging:")
+                self.max_channel_videos = config.get('max_channel_videos', 6)
                 self.youtube_transcript_prompt = config.get('youtube_transcript_prompt', "Rewrite this YouTube transcript content to be more engaging and natural for text-to-speech:")
                 self.ai_mode = config.get('ai_mode', 'deepseek')
                 self.openrouter_model = config.get('openrouter_model', 'deepseek/deepseek-chat')
@@ -409,7 +413,8 @@ class WorkingF5Bot:
                 'title_prompt_1': self.title_prompt_1,
                 'title_prompt_2': self.title_prompt_2,
                 'title_prompt_3': self.title_prompt_3,
-                'title_prompt_10_more': self.title_prompt_10_more
+                'title_prompt_10_more': self.title_prompt_10_more,
+                'max_channel_videos': self.max_channel_videos
             }
             with open(self.config_file, 'w') as f:
                 json.dump(config, f, indent=2)
@@ -2110,6 +2115,47 @@ class WorkingF5Bot:
         except Exception as e:
             await update.message.reply_text(f"❌ Error listing keys: {str(e)}")
 
+    async def set_video_count_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Set maximum number of videos to process per channel"""
+        try:
+            if not context.args:
+                await update.message.reply_text(
+                    f"📊 Current setting: {self.max_channel_videos} videos per channel\n\n"
+                    f"💡 Usage: /set_video_count <number>\n\n"
+                    f"Examples:\n"
+                    f"  /set_video_count 10 - Process 10 videos\n"
+                    f"  /set_video_count 100 - Process 100 videos\n"
+                    f"  /set_video_count 6 - Reset to default"
+                )
+                return
+
+            try:
+                count = int(context.args[0])
+                if count <= 0:
+                    await update.message.reply_text("❌ Count must be greater than 0")
+                    return
+
+                if count > 200:
+                    await update.message.reply_text(
+                        "⚠️ Warning: Processing more than 200 videos may take a very long time!\n"
+                        "Recommended maximum: 50 videos"
+                    )
+                    return
+
+                self.max_channel_videos = count
+                self.save_config()
+
+                await update.message.reply_text(
+                    f"✅ Video count updated and saved!\n\n"
+                    f"📊 New setting: {count} videos per channel\n"
+                    f"⏱️ Estimated processing time: {count * 2}-{count * 3} minutes"
+                )
+            except ValueError:
+                await update.message.reply_text("❌ Please provide a valid number")
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error setting video count: {str(e)}")
+
     # =============================================================================
     # GOOGLE DRIVE BATCH PROCESSING COMMANDS
     # =============================================================================
@@ -2378,7 +2424,7 @@ class WorkingF5Bot:
                 f"📺 {channel_name or 'Unknown'}\n"
                 f"🆔 `{channel_id}`\n\n"
                 f"📊 Found {len(all_videos)} videos (>10 min)\n"
-                f"🎯 Selecting top 6 unique videos...",
+                f"🎯 Selecting top {self.max_channel_videos} unique videos...",
                 parse_mode="Markdown"
             )
 
@@ -2389,9 +2435,9 @@ class WorkingF5Bot:
             if self.supabase.is_connected():
                 unprocessed_ids = self.supabase.get_unprocessed_videos(all_video_ids, days=15)
 
-            # Step 4: Select top 6
+            # Step 4: Select top videos based on max_channel_videos setting
             selected_videos = self.youtube_processor.select_unique_videos(
-                all_videos, unprocessed_ids, count=6
+                all_videos, unprocessed_ids, count=self.max_channel_videos
             )
 
             if not selected_videos:
@@ -2474,7 +2520,7 @@ class WorkingF5Bot:
 
                     # Step 5e: Generate audio with global counter
                     audio_links = await self._generate_audio_with_counter(
-                        merged_script, video_id, chat_id, update, context
+                        merged_script, video_id, chat_id, update, context, channel_name=channel_name
                     )
 
                     if audio_links:
@@ -5343,9 +5389,10 @@ class WorkingF5Bot:
             print(f"❌ GoFile multi-upload error: {e}")
             return None
 
-    async def upload_to_google_drive(self, file_path):
+    async def upload_to_google_drive(self, file_path, channel_name=None):
         """
         Upload file to Google Drive (for direct script audio only).
+        If channel_name is provided, creates/uses a subfolder with that name.
         Returns Google Drive file ID on success, None on failure.
         """
         try:
@@ -5353,6 +5400,7 @@ class WorkingF5Bot:
             from googleapiclient.discovery import build
             from googleapiclient.http import MediaFileUpload
             from google.auth.transport.requests import Request
+            import re
 
             # Load credentials - Check multiple possible locations
             creds = None
@@ -5396,17 +5444,51 @@ class WorkingF5Bot:
             print("🔗 Connecting to Google Drive...")
             service = build('drive', 'v3', credentials=creds)
 
-            # Get folder ID from environment
-            folder_id = os.getenv('GDRIVE_FOLDER_ID')
-            if not folder_id:
+            # Get base folder ID from environment (audio folder)
+            base_folder_id = os.getenv('GDRIVE_FOLDER_ID')
+            if not base_folder_id:
                 print("⚠️ GDRIVE_FOLDER_ID not set")
                 return None
+
+            # If channel_name provided, create/get channel subfolder
+            target_folder_id = base_folder_id
+            if channel_name:
+                # Sanitize channel name for folder name
+                safe_channel_name = re.sub(r'[<>:"/\\|?*]', '_', channel_name)
+
+                # Check if channel folder already exists
+                query = f"name='{safe_channel_name}' and '{base_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                results = service.files().list(
+                    q=query,
+                    spaces='drive',
+                    fields='files(id, name)'
+                ).execute()
+
+                existing_folders = results.get('files', [])
+
+                if existing_folders:
+                    # Use existing folder
+                    target_folder_id = existing_folders[0]['id']
+                    print(f"📁 Using existing channel folder: {safe_channel_name}")
+                else:
+                    # Create new channel folder
+                    folder_metadata = {
+                        'name': safe_channel_name,
+                        'mimeType': 'application/vnd.google-apps.folder',
+                        'parents': [base_folder_id]
+                    }
+                    folder = service.files().create(
+                        body=folder_metadata,
+                        fields='id'
+                    ).execute()
+                    target_folder_id = folder.get('id')
+                    print(f"📁 Created new channel folder: {safe_channel_name} (ID: {target_folder_id})")
 
             # Prepare file metadata
             file_name = os.path.basename(file_path)
             file_metadata = {
                 'name': file_name,
-                'parents': [folder_id]
+                'parents': [target_folder_id]
             }
 
             # Upload file
@@ -5421,6 +5503,8 @@ class WorkingF5Bot:
             web_link = file.get('webViewLink')
 
             print(f"✅ Google Drive upload: {file_name}")
+            if channel_name:
+                print(f"   Channel folder: {safe_channel_name}")
             print(f"   File ID: {file_id}")
             print(f"   Link: {web_link}")
 
@@ -5639,10 +5723,10 @@ class WorkingF5Bot:
                                 gofile_links.append(gofile_link)
                                 await send_msg(f"🔗 {filename} ({size_mb}MB)\n{gofile_link}")
 
-                                # Upload to Google Drive
+                                # Upload to Google Drive (with channel folder)
                                 try:
                                     await send_msg("☁️ Uploading to Google Drive...")
-                                    gdrive_id = await self.upload_to_google_drive(file_path)
+                                    gdrive_id = await self.upload_to_google_drive(file_path, channel_name=channel_folder)
                                     if gdrive_id:
                                         gdrive_file_ids.append(gdrive_id)
                                         await send_msg(f"✅ Google Drive uploaded\n📁 File ID: `{gdrive_id}`")
@@ -6289,6 +6373,7 @@ async def async_main():
     application.add_handler(CommandHandler("set_deepseek_key", bot_instance.set_deepseek_key_command))
     application.add_handler(CommandHandler("set_channel_prompt", bot_instance.set_channel_prompt_command))
     application.add_handler(CommandHandler("list_keys", bot_instance.list_keys_command))
+    application.add_handler(CommandHandler("set_video_count", bot_instance.set_video_count_command))
     # Google Drive Batch Processing
     application.add_handler(CommandHandler("process_gdrive_scripts", bot_instance.process_gdrive_scripts_command))
     # Reference Audio Management
