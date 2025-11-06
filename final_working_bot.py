@@ -2081,6 +2081,36 @@ class WorkingF5Bot:
             await update.message.reply_text(f"❌ Error listing keys: {str(e)}")
 
     # =============================================================================
+    # GOOGLE DRIVE BATCH PROCESSING COMMANDS
+    # =============================================================================
+
+    async def process_gdrive_scripts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Process all unprocessed scripts from Google Drive channels folders"""
+        try:
+            chat_id = update.effective_chat.id
+
+            await update.message.reply_text(
+                "🚀 Starting Google Drive script processing...\n\n"
+                "This will:\n"
+                "1. Check all channel folders in Google Drive\n"
+                "2. Process unprocessed .txt scripts\n"
+                "3. Generate audio with F5-TTS\n"
+                "4. Upload to Gofile + Google Drive\n"
+                "5. Track processed scripts in database\n\n"
+                "⏳ This may take a while..."
+            )
+
+            # Call batch processor
+            await self.process_gdrive_channel_scripts(context, chat_id)
+
+        except Exception as e:
+            error_msg = f"❌ Command error: {str(e)}"
+            print(error_msg)
+            import traceback
+            print(traceback.format_exc())
+            await update.message.reply_text(error_msg)
+
+    # =============================================================================
     # DEFAULT REFERENCE AUDIO COMMANDS
     # =============================================================================
 
@@ -4349,6 +4379,25 @@ class WorkingF5Bot:
                 # Start processing immediately (no timer)
                 asyncio.create_task(self.process_queue(context))
 
+                # BACKGROUND: Check Google Drive for new scripts (non-blocking)
+                # This runs in parallel without delaying the user's upload
+                async def check_gdrive_background():
+                    try:
+                        print("🔍 Background: Checking Google Drive for new channel scripts...")
+                        scripts = await self.fetch_gdrive_channel_scripts()
+                        if scripts:
+                            print(f"📊 Found {len(scripts)} new scripts in Google Drive")
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=f"💡 Found {len(scripts)} unprocessed scripts in Google Drive!\n\n"
+                                     f"Use /process_gdrive_scripts to process them."
+                            )
+                    except Exception as bg_error:
+                        print(f"⚠️ Background Google Drive check failed: {bg_error}")
+
+                # Run in background (non-blocking)
+                asyncio.create_task(check_gdrive_background())
+
         except Exception as e:
             # CRITICAL: NO Telegram messages in exception handler!
             # Only console logs to avoid flood control
@@ -4857,7 +4906,7 @@ class WorkingF5Bot:
             except Exception as _e:
                 pass
     
-    async def generate_audio_f5(self, script_text, chat_id=None, input_filename=None):
+    async def generate_audio_f5(self, script_text, chat_id=None, input_filename=None, channel_shortform=None, audio_counter=None):
         """F5-TTS API with PC-like parameters and processing"""
         try:
             # Optional chat context for progress updates
@@ -4867,9 +4916,13 @@ class WorkingF5Bot:
             print(f"📝 Script length: {len(script_text)} characters")
             print(f"🎵 Reference: {self.reference_audio}")
 
-            # Create output filename based on input file or timestamp
-            if input_filename:
-                # Extract clean name: "my_script_1234567890.txt" -> "my_script"
+            # Create output filename based on channel automation or regular processing
+            if channel_shortform and audio_counter is not None:
+                # Channel batch processing: "12_raw_godmsgi.wav"
+                base_output_path = os.path.join(OUTPUT_DIR, f"{audio_counter}_{channel_shortform}")
+                print(f"📁 Channel mode: {audio_counter}_{channel_shortform}")
+            elif input_filename:
+                # Regular queue: "my_script_raw.wav"
                 clean_name = input_filename.replace('.txt', '').rsplit('_', 1)[0]
                 base_output_path = os.path.join(OUTPUT_DIR, clean_name)
                 print(f"📁 Using input filename: {clean_name}")
@@ -5345,6 +5398,275 @@ class WorkingF5Bot:
         except Exception as e:
             print(f"❌ Google Drive upload error: {e}")
             return None
+
+    async def fetch_gdrive_channel_scripts(self):
+        """
+        Fetch unprocessed scripts from Google Drive channels/ folders
+        Returns list of scripts grouped by channel with metadata
+        """
+        try:
+            import pickle
+            import re
+            from googleapiclient.discovery import build
+            from google.auth.transport.requests import Request
+            from googleapiclient.http import MediaIoBaseDownload
+            import io
+
+            print("🔍 Checking Google Drive for channel scripts...")
+
+            # Load credentials (same as upload_to_google_drive)
+            token_paths = [
+                'token.pickle',
+                '../token.pickle',
+                os.path.join(os.path.dirname(__file__), 'token.pickle'),
+            ]
+
+            creds = None
+            token_file = None
+            for path in token_paths:
+                if os.path.exists(path):
+                    token_file = path
+                    with open(token_file, 'rb') as token:
+                        creds = pickle.load(token)
+                    break
+
+            if not creds:
+                print("❌ token.pickle not found")
+                return []
+
+            # Refresh if needed
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                if token_file:
+                    with open(token_file, 'wb') as token:
+                        pickle.dump(creds, token)
+
+            # Build service
+            service = build('drive', 'v3', credentials=creds)
+
+            # Find "channels" folder
+            folder_id = os.getenv("GDRIVE_FOLDER_LONG")  # Parent folder
+            if not folder_id:
+                print("⚠️ GDRIVE_FOLDER_LONG not set")
+                return []
+
+            # List folders inside channels/
+            query = f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = service.files().list(q=query, fields="files(id, name)").execute()
+            channel_folders = results.get('files', [])
+
+            print(f"📁 Found {len(channel_folders)} channel folders")
+
+            all_scripts = []
+
+            for folder in channel_folders:
+                folder_name = folder['name']
+                folder_id_inner = folder['id']
+
+                # Extract shortform from folder name: "God's message(godmsgi)" -> "godmsgi"
+                match = re.search(r'\(([^)]+)\)', folder_name)
+                if not match:
+                    print(f"⚠️ Skipping folder '{folder_name}' - no shortform in brackets")
+                    continue
+
+                shortform = match.group(1)
+                print(f"📂 Processing channel: {folder_name} (shortform: {shortform})")
+
+                # List .txt files in this folder
+                txt_query = f"'{folder_id_inner}' in parents and mimeType='text/plain' and trashed=false"
+                txt_results = service.files().list(q=txt_query, fields="files(id, name)").execute()
+                txt_files = txt_results.get('files', [])
+
+                print(f"   Found {len(txt_files)} .txt files")
+
+                for txt_file in txt_files:
+                    script_name = txt_file['name']
+                    script_id = txt_file['id']
+
+                    # Check if already processed
+                    if self.supabase.is_script_processed(folder_name, script_name):
+                        print(f"   ⏭️ Skipping {script_name} (already processed)")
+                        continue
+
+                    # Download script content
+                    request = service.files().get_media(fileId=script_id)
+                    file_buffer = io.BytesIO()
+                    downloader = MediaIoBaseDownload(file_buffer, request)
+
+                    done = False
+                    while not done:
+                        status, done = downloader.next_chunk()
+
+                    script_content = file_buffer.getvalue().decode('utf-8')
+
+                    all_scripts.append({
+                        'channel_folder': folder_name,
+                        'shortform': shortform,
+                        'script_name': script_name,
+                        'script_content': script_content,
+                        'gdrive_file_id': script_id
+                    })
+
+                    print(f"   ✅ {script_name} - {len(script_content)} chars")
+
+            print(f"✅ Total unprocessed scripts: {len(all_scripts)}")
+            return all_scripts
+
+        except Exception as e:
+            print(f"❌ Error fetching Google Drive scripts: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return []
+
+    async def process_gdrive_channel_scripts(self, context, chat_id):
+        """
+        Process all unprocessed scripts from Google Drive channels folders
+        One channel at a time, with counter-based naming
+        """
+        try:
+            print("🚀 Starting Google Drive channel script processing...")
+
+            async def send_msg(text):
+                """Helper to send messages to Telegram"""
+                try:
+                    await context.bot.send_message(chat_id=chat_id, text=text)
+                except Exception as e:
+                    print(f"⚠️ Could not send message: {e}")
+
+            # Fetch unprocessed scripts
+            await send_msg("🔍 Checking Google Drive for new scripts...")
+            scripts = await self.fetch_gdrive_channel_scripts()
+
+            if not scripts:
+                await send_msg("✅ No new scripts to process!")
+                return
+
+            # Group by channel
+            from collections import defaultdict
+            channels = defaultdict(list)
+            for script in scripts:
+                channels[script['channel_folder']].append(script)
+
+            total_scripts = len(scripts)
+            total_channels = len(channels)
+
+            await send_msg(
+                f"📊 Found {total_scripts} unprocessed scripts across {total_channels} channels\n\n"
+                f"Processing one channel at a time..."
+            )
+
+            processed_count = 0
+
+            # Process one channel at a time
+            for channel_folder, channel_scripts in channels.items():
+                shortform = channel_scripts[0]['shortform']  # All scripts in same channel have same shortform
+
+                await send_msg(
+                    f"📂 Processing Channel: {channel_folder}\n"
+                    f"🔤 Shortform: {shortform}\n"
+                    f"📄 Scripts: {len(channel_scripts)}"
+                )
+
+                # Process each script in this channel
+                for idx, script in enumerate(channel_scripts, 1):
+                    script_name = script['script_name']
+                    script_content = script['script_content']
+
+                    await send_msg(f"🎵 [{idx}/{len(channel_scripts)}] Generating audio for: {script_name}")
+
+                    # Get counter from Supabase
+                    counter = self.supabase.increment_counter()
+                    print(f"🔢 Using counter: {counter}")
+
+                    # Generate audio
+                    success, output_files = await self.generate_audio_f5(
+                        script_text=script_content,
+                        chat_id=chat_id,
+                        channel_shortform=shortform,
+                        audio_counter=counter
+                    )
+
+                    if not success:
+                        error_msg = output_files if isinstance(output_files, str) else "Unknown error"
+                        await send_msg(f"❌ Failed: {script_name}\nError: {error_msg}")
+                        continue
+
+                    # Upload to Gofile
+                    gofile_links = []
+                    gdrive_file_ids = []
+
+                    for file_path in output_files:
+                        if os.path.exists(file_path):
+                            filename = os.path.basename(file_path)
+                            size_mb = os.path.getsize(file_path) // (1024 * 1024)
+
+                            # Upload to Gofile
+                            await send_msg(f"📤 Uploading {filename}...")
+                            gofile_link = await self.upload_single_to_gofile(file_path)
+
+                            if gofile_link:
+                                gofile_links.append(gofile_link)
+                                await send_msg(f"🔗 {filename} ({size_mb}MB)\n{gofile_link}")
+
+                                # Upload to Google Drive
+                                try:
+                                    await send_msg("☁️ Uploading to Google Drive...")
+                                    gdrive_id = await self.upload_to_google_drive(file_path)
+                                    if gdrive_id:
+                                        gdrive_file_ids.append(gdrive_id)
+                                        await send_msg(f"✅ Google Drive uploaded\n📁 File ID: `{gdrive_id}`")
+                                except Exception as gd_error:
+                                    print(f"⚠️ Google Drive upload failed: {gd_error}")
+                            else:
+                                await send_msg(f"⚠️ Gofile upload failed for {filename}")
+
+                    # Mark as processed in Supabase
+                    if gofile_links:
+                        self.supabase.mark_script_processed(
+                            channel_folder=channel_folder,
+                            channel_shortform=shortform,
+                            script_filename=script_name,
+                            script_path=script['gdrive_file_id'],
+                            audio_counter=counter,
+                            gofile_link=gofile_links[0] if gofile_links else None,
+                            gdrive_file_id=gdrive_file_ids[0] if gdrive_file_ids else None
+                        )
+
+                        processed_count += 1
+                        await send_msg(f"✅ [{processed_count}/{total_scripts}] {script_name} completed!")
+
+                    # Memory cleanup
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                    await asyncio.sleep(2)  # Small delay between scripts
+
+                # Channel complete
+                await send_msg(
+                    f"✅ Channel Complete: {channel_folder}\n"
+                    f"📊 Processed: {len(channel_scripts)} scripts\n\n"
+                    f"Moving to next channel..."
+                )
+
+            # Final summary
+            await send_msg(
+                f"🎉 ALL CHANNELS PROCESSED!\n\n"
+                f"📊 Total scripts: {processed_count}/{total_scripts}\n"
+                f"📁 Total channels: {total_channels}\n\n"
+                f"✅ All audio files uploaded to Gofile + Google Drive"
+            )
+
+            print(f"✅ Batch processing complete: {processed_count} scripts processed")
+
+        except Exception as e:
+            error_msg = f"❌ Batch processing error: {str(e)}"
+            print(error_msg)
+            import traceback
+            print(traceback.format_exc())
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=error_msg)
+            except:
+                pass
 
     async def upload_single_to_gofile(self, file_path):
         """
@@ -5936,6 +6258,8 @@ async def async_main():
     application.add_handler(CommandHandler("set_deepseek_key", bot_instance.set_deepseek_key_command))
     application.add_handler(CommandHandler("set_channel_prompt", bot_instance.set_channel_prompt_command))
     application.add_handler(CommandHandler("list_keys", bot_instance.list_keys_command))
+    # Google Drive Batch Processing
+    application.add_handler(CommandHandler("process_gdrive_scripts", bot_instance.process_gdrive_scripts_command))
     # Reference Audio Management
     application.add_handler(CommandHandler("set_default_reference", bot_instance.set_default_reference_command))
     application.add_handler(CommandHandler("get_default_reference", bot_instance.get_default_reference_command))

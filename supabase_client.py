@@ -408,6 +408,70 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             return 0
 
     # =============================================================================
+    # GOOGLE DRIVE SCRIPT PROCESSING TRACKING
+    # =============================================================================
+
+    def is_script_processed(self, channel_folder: str, script_filename: str) -> bool:
+        """Check if a Google Drive script has been processed"""
+        if not self.is_connected():
+            return False
+
+        try:
+            result = self.client.table('processed_gdrive_scripts')\
+                .select('id')\
+                .eq('channel_folder', channel_folder)\
+                .eq('script_filename', script_filename)\
+                .execute()
+
+            return len(result.data) > 0
+        except Exception as e:
+            print(f"⚠️ Error checking script status: {e}")
+            return False
+
+    def mark_script_processed(self, channel_folder: str, channel_shortform: str,
+                             script_filename: str, script_path: str, audio_counter: int,
+                             gofile_link: str = None, gdrive_file_id: str = None) -> bool:
+        """Mark a Google Drive script as processed"""
+        if not self.is_connected():
+            return False
+
+        try:
+            data = {
+                'channel_folder': channel_folder,
+                'channel_shortform': channel_shortform,
+                'script_filename': script_filename,
+                'script_path': script_path,
+                'audio_counter': audio_counter,
+                'gofile_link': gofile_link,
+                'gdrive_file_id': gdrive_file_id,
+                'processed_at': datetime.now().isoformat()
+            }
+
+            self.client.table('processed_gdrive_scripts').insert(data).execute()
+            print(f"✅ Marked {script_filename} as processed (counter: {audio_counter})")
+            return True
+        except Exception as e:
+            print(f"❌ Error marking script as processed: {e}")
+            return False
+
+    def get_processed_scripts(self, channel_folder: str = None) -> list:
+        """Get list of processed scripts (optionally filtered by channel)"""
+        if not self.is_connected():
+            return []
+
+        try:
+            query = self.client.table('processed_gdrive_scripts').select('*')
+
+            if channel_folder:
+                query = query.eq('channel_folder', channel_folder)
+
+            result = query.order('processed_at', desc=True).execute()
+            return result.data
+        except Exception as e:
+            print(f"❌ Error fetching processed scripts: {e}")
+            return []
+
+    # =============================================================================
     # PROMPT MANAGEMENT
     # =============================================================================
 
