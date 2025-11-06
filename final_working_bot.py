@@ -5129,26 +5129,27 @@ class WorkingF5Bot:
             # 1. Raw audio (already saved)
             raw_file = f"{base_path}_raw.wav"
             output_files.append(raw_file)
-            
-            # 2. Enhanced audio with ffmpeg filter
-            enhanced_file = f"{base_path}_enhanced.wav"
-            ffmpeg_enhance_cmd = [
-                'ffmpeg', '-i', raw_file,
-                '-af', self.ffmpeg_filter,
-                '-y', enhanced_file
-            ]
-            
-            try:
-                subprocess.run(ffmpeg_enhance_cmd, capture_output=True, check=True, timeout=60)
-                output_files.append(enhanced_file)
-                print("Enhanced audio created")
-            except Exception as e:
-                print(f"Enhanced audio creation failed: {e}")
-                # Use raw as fallback
-                import shutil
-                shutil.copy(raw_file, enhanced_file)
-                output_files.append(enhanced_file)
-            
+
+            # Enhanced audio DISABLED for batch processing - only raw needed
+            # enhanced_file = f"{base_path}_enhanced.wav"
+            # ffmpeg_enhance_cmd = [
+            #     'ffmpeg', '-i', raw_file,
+            #     '-af', self.ffmpeg_filter,
+            #     '-y', enhanced_file
+            # ]
+            #
+            # try:
+            #     subprocess.run(ffmpeg_enhance_cmd, capture_output=True, check=True, timeout=60)
+            #     output_files.append(enhanced_file)
+            #     print("Enhanced audio created")
+            # except Exception as e:
+            #     print(f"Enhanced audio creation failed: {e}")
+            #     # Use raw as fallback
+            #     import shutil
+            #     shutil.copy(raw_file, enhanced_file)
+            #     output_files.append(enhanced_file)
+
+            print("✅ Raw audio only (enhanced disabled)")
             return output_files
             
         except Exception as e:
