@@ -2511,7 +2511,7 @@ class WorkingF5Bot:
                     merged_script = "\n\n".join(processed_chunks)
 
                     # Save merged script
-                    self.youtube_processor.save_merged_script(merged_script, video_id, self.chunks_dir)
+                    script_path = self.youtube_processor.save_merged_script(merged_script, video_id, self.chunks_dir)
 
                     await send_message(
                         f"✅ Video {idx}: Script processed ({len(merged_script)} chars)\n"
@@ -2526,6 +2526,22 @@ class WorkingF5Bot:
                     if audio_links:
                         all_audio_links.extend(audio_links)
                         processed_count += 1
+
+                        # Send merged script file
+                        if os.path.exists(script_path):
+                            try:
+                                await send_message(f"📄 Sending merged script file...")
+                                with open(script_path, 'rb') as script_file:
+                                    await context.bot.send_document(
+                                        chat_id=chat_id,
+                                        document=script_file,
+                                        filename=f"{video_id}_script.txt",
+                                        caption=f"📝 Merged Script - Video {idx}\n🆔 {video_id}"
+                                    )
+                                print(f"✅ Sent script file: {script_path}")
+                            except Exception as script_error:
+                                print(f"⚠️ Failed to send script file: {script_error}")
+                                await send_message(f"⚠️ Could not send script file")
 
                         # Mark video as processed in database
                         if self.supabase.is_connected():
@@ -2758,56 +2774,45 @@ class WorkingF5Bot:
                     shutil.move(first_file, raw_output)
                     print(f"✅ Renamed {first_file} → {raw_output}")
 
-            # Apply filters for enhanced version
-            await send_msg(f"🎛️ Creating enhanced version...")
-
-            # Create enhanced version using FFmpeg
-            try:
-                import subprocess
-                ffmpeg_enhance_cmd = [
-                    'ffmpeg', '-i', raw_output,
-                    '-af', self.ffmpeg_filter,
-                    '-y', enhanced_output
-                ]
-                subprocess.run(ffmpeg_enhance_cmd, capture_output=True, check=True, timeout=60)
-                print(f"✅ Enhanced audio created: {enhanced_output}")
-            except Exception as e:
-                print(f"⚠️ Enhanced audio creation failed: {e}")
-                # Use raw as fallback
-                import shutil
-                if os.path.exists(raw_output):
-                    shutil.copy(raw_output, enhanced_output)
-                    print(f"✅ Using raw audio as enhanced (fallback)")
-
-            # Upload both files
+            # Upload raw file only (no enhanced version for channel processing)
             links = []
 
-            await send_msg(f"📤 Uploading audio files to Gofile...")
+            await send_msg(f"📤 Uploading audio file to Gofile...")
 
-            for file_path in [raw_output, enhanced_output]:
-                if os.path.exists(file_path):
-                    filename = os.path.basename(file_path)
-                    size_mb = os.path.getsize(file_path) // (1024 * 1024)
+            if os.path.exists(raw_output):
+                filename = os.path.basename(raw_output)
+                size_mb = os.path.getsize(raw_output) // (1024 * 1024)
 
-                    print(f"📤 Uploading {filename} ({size_mb} MB)...")
-                    await send_msg(f"📤 Uploading {filename}...")
+                print(f"📤 Uploading {filename} ({size_mb} MB)...")
+                await send_msg(f"📤 Uploading {filename}...")
 
-                    # Upload to Gofile
-                    link = await self.upload_single_to_gofile(file_path)
+                # Upload to Gofile
+                link = await self.upload_single_to_gofile(raw_output)
 
-                    if link:
-                        print(f"✅ Upload successful: {link}")
-                        # Send without parse_mode to avoid Markdown errors with URLs
-                        await send_msg(
-                            f"🔗 {filename} ({size_mb} MB)\n{link}"
-                        )
-                        links.append(link)
-                    else:
-                        print(f"❌ Upload failed for {filename}")
-                        await send_msg(f"⚠️ Failed to upload {filename}")
+                if link:
+                    print(f"✅ Gofile upload successful: {link}")
+                    await send_msg(
+                        f"🔗 {filename} ({size_mb} MB)\n{link}"
+                    )
+                    links.append(link)
+
+                    # Upload to Google Drive with channel folder
+                    if channel_name:
+                        try:
+                            await send_msg("☁️ Uploading to Google Drive...")
+                            gdrive_id = await self.upload_to_google_drive(raw_output, channel_name=channel_name)
+                            if gdrive_id:
+                                await send_msg(f"✅ Google Drive uploaded\n📁 File ID: `{gdrive_id}`")
+                                print(f"✅ Google Drive upload: {gdrive_id}")
+                        except Exception as gd_error:
+                            print(f"⚠️ Google Drive upload failed: {gd_error}")
+                            await send_msg(f"⚠️ Google Drive upload failed")
                 else:
-                    print(f"❌ File not found: {file_path}")
-                    await send_msg(f"❌ File not found: {os.path.basename(file_path)}")
+                    print(f"❌ Upload failed for {filename}")
+                    await send_msg(f"⚠️ Failed to upload {filename}")
+            else:
+                print(f"❌ File not found: {raw_output}")
+                await send_msg(f"❌ File not found: {os.path.basename(raw_output)}")
 
             return links
 
