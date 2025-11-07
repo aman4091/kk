@@ -2703,9 +2703,11 @@ class WorkingF5Bot:
         return processed_chunks
 
     async def _generate_audio_with_counter(self, script: str, video_id: str, chat_id: int,
-                                          update: Update, context: ContextTypes.DEFAULT_TYPE) -> list:
+                                          update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                          channel_name: str = None) -> list:
         """
         Generate audio using F5-TTS with global counter-based naming.
+        If channel_name provided, uploads to channel-specific Google Drive folder.
         Returns list of Gofile links.
         """
         # Helper to send messages (works for both channels and direct messages)
