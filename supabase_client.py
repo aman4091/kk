@@ -285,8 +285,10 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
                 'last_updated': datetime.now().isoformat()
             }
 
-            # Upsert (insert or update)
-            self.client.table('youtube_channels').upsert(data).execute()
+            # Upsert (insert or update) - use channel_url as conflict resolution key
+            self.client.table('youtube_channels')\
+                .upsert(data, on_conflict='channel_url')\
+                .execute()
             print(f"✅ Channel cached: {channel_name} ({len(videos)} videos)")
             return True
         except Exception as e:
