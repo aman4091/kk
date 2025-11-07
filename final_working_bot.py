@@ -2401,7 +2401,7 @@ class WorkingF5Bot:
                 await send_message("📺 Fetching channel videos from YouTube...")
 
                 channel_id, channel_name, all_videos = self.youtube_processor.get_channel_top_videos(
-                    channel_url, count=1000, min_duration_min=10
+                    channel_url, count=1000, min_duration_min=30
                 )
 
                 if not channel_id or not all_videos:
@@ -2423,7 +2423,7 @@ class WorkingF5Bot:
                 f"✅ **Channel Found:**\n"
                 f"📺 {channel_name or 'Unknown'}\n"
                 f"🆔 `{channel_id}`\n\n"
-                f"📊 Found {len(all_videos)} videos (>10 min)\n"
+                f"📊 Found {len(all_videos)} videos (>30 min)\n"
                 f"🎯 Selecting top {self.max_channel_videos} unique videos...",
                 parse_mode="Markdown"
             )
@@ -4534,8 +4534,8 @@ class WorkingF5Bot:
                         msg_text = (
                             f"📺 **YouTube Channel Detected!**\n\n"
                             f"🔗 URL: {youtube_url[:50]}{'...' if len(youtube_url) > 50 else ''}\n\n"
-                            f"🎯 Will process top 6 videos (>10 min, not processed in last 15 days)\n"
-                            f"⏱️ Estimated time: 15-20 minutes"
+                            f"🎯 Will process top {self.max_channel_videos} videos (>30 min, not processed in last 15 days)\n"
+                            f"⏱️ Estimated time: {self.max_channel_videos * 2}-{self.max_channel_videos * 3} minutes"
                         )
 
                         try:
