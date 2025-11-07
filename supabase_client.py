@@ -408,6 +408,67 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             return 0
 
     # =============================================================================
+    # CHANNEL-SPECIFIC COUNTER (for channel-wise audio numbering)
+    # =============================================================================
+
+    def get_channel_counter(self, channel_name: str) -> int:
+        """Get current counter value for specific channel"""
+        if not self.is_connected():
+            return 0
+
+        try:
+            result = self.client.table('channel_counters')\
+                .select('counter')\
+                .eq('channel_name', channel_name)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                return result.data[0]['counter']
+            return 0
+        except Exception as e:
+            print(f"❌ Error getting channel counter for {channel_name}: {e}")
+            return 0
+
+    def increment_channel_counter(self, channel_name: str) -> int:
+        """
+        Increment counter for specific channel and return new value.
+        Auto-creates counter entry if channel is new (starts from 1).
+        """
+        if not self.is_connected():
+            return 0
+
+        try:
+            # Check if counter exists for this channel
+            current = self.get_channel_counter(channel_name)
+
+            if current > 0:
+                # Channel exists, increment counter
+                new_value = current + 1
+                self.client.table('channel_counters')\
+                    .update({'counter': new_value, 'updated_at': datetime.now().isoformat()})\
+                    .eq('channel_name', channel_name)\
+                    .execute()
+                print(f"✅ Channel '{channel_name}' counter: {current} → {new_value}")
+                return new_value
+            else:
+                # New channel, create entry with counter = 1
+                self.client.table('channel_counters')\
+                    .insert({
+                        'channel_name': channel_name,
+                        'counter': 1,
+                        'created_at': datetime.now().isoformat(),
+                        'updated_at': datetime.now().isoformat()
+                    })\
+                    .execute()
+                print(f"✅ New channel '{channel_name}' created with counter = 1")
+                return 1
+
+        except Exception as e:
+            print(f"❌ Error incrementing channel counter for {channel_name}: {e}")
+            # Fallback: return timestamp-based counter
+            return int(datetime.now().timestamp()) % 10000
+
+    # =============================================================================
     # GOOGLE DRIVE SCRIPT PROCESSING TRACKING
     # =============================================================================
 

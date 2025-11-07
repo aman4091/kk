@@ -2510,16 +2510,13 @@ class WorkingF5Bot:
                     # Step 5d: Merge chunks
                     merged_script = "\n\n".join(processed_chunks)
 
-                    # Save merged script
-                    script_path = self.youtube_processor.save_merged_script(merged_script, video_id, self.chunks_dir)
-
                     await send_message(
                         f"✅ Video {idx}: Script processed ({len(merged_script)} chars)\n"
                         f"🎵 Generating audio..."
                     )
 
-                    # Step 5e: Generate audio with global counter
-                    audio_links = await self._generate_audio_with_counter(
+                    # Step 5e: Generate audio with channel-specific counter (also saves script)
+                    audio_links, counter, script_path = await self._generate_audio_with_counter(
                         merged_script, video_id, chat_id, update, context, channel_name=channel_name
                     )
 
@@ -2527,7 +2524,7 @@ class WorkingF5Bot:
                         all_audio_links.extend(audio_links)
                         processed_count += 1
 
-                        # Send merged script file
+                        # Send merged script file (now with counter-based filename)
                         if os.path.exists(script_path):
                             try:
                                 await send_message(f"📄 Sending merged script file...")
@@ -2535,8 +2532,8 @@ class WorkingF5Bot:
                                     await context.bot.send_document(
                                         chat_id=chat_id,
                                         document=script_file,
-                                        filename=f"{video_id}_script.txt",
-                                        caption=f"📝 Merged Script - Video {idx}\n🆔 {video_id}"
+                                        filename=f"{counter}_script.txt",
+                                        caption=f"📝 Merged Script - Video {idx}\n🔢 Audio #{counter}"
                                     )
                                 print(f"✅ Sent script file: {script_path}")
                             except Exception as script_error:
@@ -2545,7 +2542,6 @@ class WorkingF5Bot:
 
                         # Mark video as processed in database
                         if self.supabase.is_connected():
-                            counter = self.supabase.get_counter()
                             self.supabase.mark_video_processed(
                                 video_id, video_url, channel_id, str(chat_id), counter
                             )
@@ -2720,11 +2716,11 @@ class WorkingF5Bot:
 
     async def _generate_audio_with_counter(self, script: str, video_id: str, chat_id: int,
                                           update: Update, context: ContextTypes.DEFAULT_TYPE,
-                                          channel_name: str = None) -> list:
+                                          channel_name: str = None) -> tuple:
         """
-        Generate audio using F5-TTS with global counter-based naming.
+        Generate audio using F5-TTS with channel-specific counter-based naming.
         If channel_name provided, uploads to channel-specific Google Drive folder.
-        Returns list of Gofile links.
+        Returns tuple: (audio_links: list, counter: int, script_path: str)
         """
         # Helper to send messages (works for both channels and direct messages)
         async def send_msg(text, parse_mode=None):
@@ -2737,13 +2733,20 @@ class WorkingF5Bot:
                 print(f"Error sending message: {e}")
 
         try:
-            # Get and increment global counter
+            # Get and increment channel-specific counter
             counter = 0
-            if self.supabase.is_connected():
-                counter = self.supabase.increment_counter()
+            if self.supabase.is_connected() and channel_name:
+                counter = self.supabase.increment_channel_counter(channel_name)
             else:
                 # Fallback: use timestamp
                 counter = int(time.time()) % 10000
+
+            # Save script with counter-based filename
+            script_filename = f"{counter}_script.txt"
+            script_path = os.path.join(SCRIPTS_DIR, script_filename)
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write(script)
+            print(f"✅ Script saved: {script_path}")
 
             # Generate audio (use existing generate_audio method)
             # Modify output path to use counter
@@ -2804,6 +2807,14 @@ class WorkingF5Bot:
                             if gdrive_id:
                                 await send_msg(f"✅ Google Drive uploaded\n📁 File ID: `{gdrive_id}`")
                                 print(f"✅ Google Drive upload: {gdrive_id}")
+
+                            # Also upload script file to Google Drive
+                            if os.path.exists(script_path):
+                                await send_msg("📄 Uploading script to Google Drive...")
+                                script_gdrive_id = await self.upload_to_google_drive(script_path, channel_name=channel_name)
+                                if script_gdrive_id:
+                                    await send_msg(f"✅ Script uploaded to Google Drive\n📁 File ID: `{script_gdrive_id}`")
+                                    print(f"✅ Script Google Drive upload: {script_gdrive_id}")
                         except Exception as gd_error:
                             print(f"⚠️ Google Drive upload failed: {gd_error}")
                             await send_msg(f"⚠️ Google Drive upload failed")
@@ -2814,7 +2825,7 @@ class WorkingF5Bot:
                 print(f"❌ File not found: {raw_output}")
                 await send_msg(f"❌ File not found: {os.path.basename(raw_output)}")
 
-            return links
+            return (links, counter, script_path)
 
         except Exception as e:
             error = f"Error generating audio: {str(e)}"
@@ -2822,7 +2833,7 @@ class WorkingF5Bot:
             import traceback
             traceback.print_exc()
             await send_msg(f"❌ {error}")
-            return []
+            return ([], 0, "")
 
     async def _generate_f5_audio(self, text: str, output_path: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> tuple:
         """
