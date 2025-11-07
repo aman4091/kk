@@ -2351,6 +2351,16 @@ class WorkingF5Bot:
                             if last_updated_str.endswith('Z'):
                                 last_updated_str = last_updated_str.replace('Z', '+00:00')
 
+                            # Fix microseconds to 6 digits (Supabase returns 5 digits sometimes)
+                            import re
+                            # Match pattern: YYYY-MM-DDTHH:MM:SS.microseconds+TZ
+                            match = re.match(r'(.+\.)(\d+)(\+.+)$', last_updated_str)
+                            if match:
+                                base, microseconds, tz = match.groups()
+                                # Pad microseconds to 6 digits
+                                microseconds = microseconds.ljust(6, '0')[:6]
+                                last_updated_str = f"{base}{microseconds}{tz}"
+
                             last_updated = datetime.fromisoformat(last_updated_str)
 
                             # Calculate age
