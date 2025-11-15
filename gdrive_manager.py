@@ -22,9 +22,29 @@ class GDriveImageManager:
     def _load_credentials(self):
         """Load Google Drive credentials from token.pickle"""
         try:
-            if not os.path.exists(self.token_path):
-                print(f"❌ Token file not found: {self.token_path}")
+            # Try multiple paths for token.pickle
+            search_paths = [
+                self.token_path,
+                '../token.pickle',  # Parent directory (common on Vast.ai)
+                'token.pickle',
+                os.path.join(os.path.dirname(__file__), 'token.pickle'),
+                os.path.join(os.path.dirname(__file__), '../token.pickle')
+            ]
+
+            token_found = None
+            for path in search_paths:
+                if os.path.exists(path):
+                    token_found = path
+                    break
+
+            if not token_found:
+                print(f"❌ Token file not found in any of these paths:")
+                for p in search_paths:
+                    print(f"   - {os.path.abspath(p)}")
                 return
+
+            self.token_path = token_found
+            print(f"✅ Found token.pickle at: {token_found}")
 
             with open(self.token_path, 'rb') as token:
                 creds = pickle.load(token)

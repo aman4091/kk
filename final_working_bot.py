@@ -4953,11 +4953,14 @@ class WorkingF5Bot:
 
                     # Track completed file(s)
                     total_bytes = sum(os.path.getsize(p) for p in output_files if os.path.exists(p))
+                    # Store first output file path for video generation
+                    audio_file_path = output_files[0] if output_files else None
                     self.completed_files.append({
                         'filename': filename,
                         'link': link_or_status,
                         'size': f"{total_bytes // (1024*1024)}MB",
-                        'timestamp': time.time()
+                        'timestamp': time.time(),
+                        'file_path': audio_file_path  # Add audio file path
                     })
                     
                     # Individual completion message
