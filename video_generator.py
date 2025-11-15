@@ -314,11 +314,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_time = self._srt_time_to_ass(end_time.strip())
 
             # Parse text (line 3+)
-            text = '\\N'.join(lines[2:])  # \\N is ASS line break
+            # Use \N (ASS line break) to keep all lines in single box
+            text = '\\N'.join(lines[2:])
+
+            # Add \an5 tag for center alignment (keeps box centered, text inside aligned)
+            # This ensures single box with properly aligned multi-line text
+            text_with_alignment = '{\\an5}' + text
 
             # Create ASS event
             # Format: Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
-            ass_event = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}"
+            ass_event = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text_with_alignment}"
             ass_events.append(ass_event)
 
         # Combine header + events
