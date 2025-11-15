@@ -5071,13 +5071,17 @@ class WorkingF5Bot:
                                         text=msg
                                     )
 
+                                # Get current event loop
+                                loop = asyncio.get_event_loop()
+
                                 final_video = await asyncio.to_thread(
                                     self.video_generator.create_video_with_subtitles,
                                     image_path,
                                     audio_path,
                                     video_output_path,
                                     subtitle_style,
-                                    video_progress
+                                    video_progress,
+                                    loop
                                 )
 
                                 if final_video:

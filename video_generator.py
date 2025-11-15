@@ -8,6 +8,7 @@ import os
 import subprocess
 import whisper
 import re
+import asyncio
 from pathlib import Path
 
 
@@ -336,7 +337,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             print(f"❌ Subtitle burn error: {e}")
             return False
 
-    def create_video_with_subtitles(self, image_path, audio_path, output_path, ass_style=None, progress_callback=None):
+    def create_video_with_subtitles(self, image_path, audio_path, output_path, ass_style=None, progress_callback=None, event_loop=None):
         """
         Complete pipeline: Image + Audio → Video with subtitles
 
@@ -346,10 +347,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             output_path: Final output video path
             ass_style: Optional custom ASS style
             progress_callback: Optional async function(message) for progress updates
+            event_loop: Optional event loop for running async callbacks
 
         Returns:
             str: Path to final video or None if failed
         """
+
+        def send_progress(msg):
+            """Helper to send progress updates safely"""
+            if progress_callback and event_loop:
+                try:
+                    asyncio.run_coroutine_threadsafe(progress_callback(msg), event_loop)
+                except Exception as e:
+                    print(f"⚠️ Progress callback error: {e}")
+
         try:
             print("\n" + "="*60)
             print("🎬 VIDEO GENERATION PIPELINE")
@@ -366,36 +377,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # Step 1: Create video (image + audio)
             print("\n📹 Step 1/4: Creating video from image + audio...")
-            if progress_callback:
-                import asyncio
-                asyncio.create_task(progress_callback("📹 [25%] Creating video from image + audio..."))
+            send_progress("📹 [25%] Creating video from image + audio...")
 
             if not self.create_video_from_image_audio(image_path, audio_path, temp_video):
                 return None
 
             # Step 2: Generate subtitles with Whisper
             print("\n📝 Step 2/4: Generating subtitles with Whisper...")
-            if progress_callback:
-                import asyncio
-                asyncio.create_task(progress_callback("📝 [50%] Generating subtitles with Whisper AI..."))
+            send_progress("📝 [50%] Generating subtitles with Whisper AI...")
 
             if not self.generate_subtitles_whisper(audio_path, srt_path):
                 return None
 
             # Step 3: Convert SRT → ASS with styling
             print("\n🎨 Step 3/4: Converting SRT → ASS with styling...")
-            if progress_callback:
-                import asyncio
-                asyncio.create_task(progress_callback("🎨 [75%] Converting subtitles to ASS format..."))
+            send_progress("🎨 [75%] Converting subtitles to ASS format...")
 
             if not self.convert_srt_to_ass(srt_path, ass_style, ass_path):
                 return None
 
             # Step 4: Burn subtitles into video
             print("\n🔥 Step 4/4: Burning subtitles into video...")
-            if progress_callback:
-                import asyncio
-                asyncio.create_task(progress_callback("🔥 [90%] Burning subtitles into video..."))
+            send_progress("🔥 [90%] Burning subtitles into video...")
 
             if not self.burn_subtitles(temp_video, ass_path, output_path):
                 return None
@@ -409,9 +412,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             except:
                 pass
 
-            if progress_callback:
-                import asyncio
-                asyncio.create_task(progress_callback("✅ [100%] Video generation complete!"))
+            send_progress("✅ [100%] Video generation complete!")
 
             print("\n" + "="*60)
             print(f"✅ VIDEO PIPELINE COMPLETE: {output_path}")
@@ -421,6 +422,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         except Exception as e:
             print(f"\n❌ Video pipeline error: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
 
