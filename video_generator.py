@@ -230,6 +230,113 @@ class VideoGenerator:
             print(f"❌ SRT→ASS conversion error: {e}")
             return None
 
+    def _parse_ass_style(self, ass_style):
+        """
+        Parse ASS style string to extract key parameters
+
+        Args:
+            ass_style: ASS style string (e.g., "Style: Default,Arial,48,...")
+
+        Returns:
+            dict: Parsed style parameters
+        """
+        # Default values
+        params = {
+            'fontsize': 48,
+            'alignment': 5,  # Middle-center
+            'marginv': 40,
+            'marginl': 40,
+            'marginr': 40,
+            'back_color': '&H80000000'  # Semi-transparent black
+        }
+
+        try:
+            # Parse style string
+            # Format: Style: Name,Fontname,Fontsize,...,Alignment,MarginL,MarginR,MarginV,Encoding
+            parts = ass_style.split(',')
+            if len(parts) >= 22:
+                params['fontsize'] = int(parts[2])
+                params['back_color'] = parts[6]  # BackColour
+                params['alignment'] = int(parts[18])
+                params['marginl'] = int(parts[19])
+                params['marginr'] = int(parts[20])
+                params['marginv'] = int(parts[21])
+        except:
+            pass  # Use defaults if parsing fails
+
+        return params
+
+    def _calculate_box_dimensions(self, text, style_params):
+        r"""
+        Calculate box dimensions and position for ASS drawing
+
+        Args:
+            text: Text content (with \N line breaks)
+            style_params: Parsed style parameters
+
+        Returns:
+            dict: Box dimensions and position
+        """
+        # Parse text into lines
+        lines = text.split('\\N')
+        line_count = len(lines)
+
+        # Font metrics estimation
+        fontsize = style_params['fontsize']
+        line_height = int(fontsize * 1.2)  # Typical line height is 120% of font size
+
+        # Calculate text dimensions
+        # Estimate average character width as 60% of font size (proportional font)
+        char_width = fontsize * 0.6
+        max_line_length = max(len(line) for line in lines)
+        text_width = int(max_line_length * char_width)
+        text_height = int(line_count * line_height)
+
+        # Add padding (20px on all sides for comfortable spacing)
+        padding = 20
+        box_width = text_width + (2 * padding)
+        box_height = text_height + (2 * padding)
+
+        # Resolution (from ASS header)
+        res_x = 1920
+        res_y = 1080
+
+        # Calculate position based on alignment
+        alignment = style_params['alignment']
+        marginl = style_params['marginl']
+        marginr = style_params['marginr']
+        marginv = style_params['marginv']
+
+        # Horizontal position (1=left, 2=center, 3=right for alignment)
+        h_align = ((alignment - 1) % 3) + 1
+        if h_align == 1:  # Left
+            x1 = marginl
+        elif h_align == 2:  # Center
+            x1 = (res_x - box_width) // 2
+        else:  # Right (3)
+            x1 = res_x - marginr - box_width
+
+        # Vertical position (1-3=bottom, 4-6=middle, 7-9=top)
+        v_align = (alignment - 1) // 3
+        if v_align == 0:  # Bottom (1-3)
+            y1 = res_y - marginv - box_height
+        elif v_align == 1:  # Middle (4-6)
+            y1 = (res_y - box_height) // 2
+        else:  # Top (7-9)
+            y1 = marginv
+
+        x2 = x1 + box_width
+        y2 = y1 + box_height
+
+        return {
+            'x1': x1,
+            'y1': y1,
+            'x2': x2,
+            'y2': y2,
+            'width': box_width,
+            'height': box_height
+        }
+
     def _srt_time_to_ass(self, srt_time):
         """
         Convert SRT time format to ASS time format
@@ -291,7 +398,10 @@ Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackC
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-        # Parse SRT and convert to ASS events
+        # Parse ASS style to get parameters
+        style_params = self._parse_ass_style(ass_style)
+
+        # Parse SRT and convert to ASS events with single unified box
         ass_events = []
         srt_blocks = srt_content.strip().split('\n\n')
 
@@ -310,14 +420,38 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_time = self._srt_time_to_ass(end_time.strip())
 
             # Parse text (line 3+)
-            # Use \N (ASS line break) to keep all lines in single box
+            # Use \N (ASS line break) for multi-line text
             text = '\\N'.join(lines[2:])
 
-            # Create ASS event
-            # Format: Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
-            # NO alignment tag needed - style already has Alignment parameter
-            ass_event = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}"
-            ass_events.append(ass_event)
+            # Calculate box dimensions and position
+            box = self._calculate_box_dimensions(text, style_params)
+
+            # Get background color from style (convert ASS color format)
+            back_color = style_params['back_color']
+            # ASS color format: &HAABBGGRR (alpha, blue, green, red in hex)
+            # For drawing, we need &HAABBGGRR format as-is
+
+            # Event 1: Draw background box (Layer 0)
+            # ASS Drawing commands: m (move), l (line), c (close)
+            # Drawing rectangle: m x1 y1 l x2 y1 l x2 y2 l x1 y2
+            drawing_cmd = f"m {box['x1']} {box['y1']} l {box['x2']} {box['y1']} l {box['x2']} {box['y2']} l {box['x1']} {box['y2']}"
+
+            # Drawing tags:
+            # \p1 = enable drawing mode
+            # \an7 = top-left alignment (for absolute positioning)
+            # \pos(0,0) = position at origin (drawing uses absolute coords)
+            # \1c = primary color (fill color)
+            # \3a&HFF& = hide border (fully transparent outline)
+            # \bord0 = no border
+            # \shad0 = no shadow
+            box_event = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{{\\p1\\an7\\pos(0,0)\\1c{back_color}\\3a&HFF&\\bord0\\shad0}}{drawing_cmd}"
+            ass_events.append(box_event)
+
+            # Event 2: Draw text on top (Layer 1)
+            # Disable box rendering for text: \bord0 (no border), \shad0 (no shadow), \3a&HFF& (transparent outline)
+            # Use alignment from style
+            text_event = f"Dialogue: 1,{start_time},{end_time},Default,,0,0,0,,{{\\bord0\\shad0\\3a&HFF&}}{text}"
+            ass_events.append(text_event)
 
         # Combine header + events
         return ass_header + '\n'.join(ass_events)
