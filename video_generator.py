@@ -286,16 +286,17 @@ class VideoGenerator:
         line_height = int(fontsize * 1.2)  # Typical line height is 120% of font size
 
         # Calculate text dimensions
-        # Estimate average character width as 60% of font size (proportional font)
-        char_width = fontsize * 0.6
+        # Estimate average character width as 52% of font size (reduced from 60% for tighter fit)
+        char_width = fontsize * 0.52
         max_line_length = max(len(line) for line in lines)
         text_width = int(max_line_length * char_width)
         text_height = int(line_count * line_height)
 
-        # Add padding (20px on all sides for comfortable spacing)
-        padding = 20
-        box_width = text_width + (2 * padding)
-        box_height = text_height + (2 * padding)
+        # Add padding (15px horizontal, 18px vertical - reduced for narrower box)
+        padding_h = 15
+        padding_v = 18
+        box_width = text_width + (2 * padding_h)
+        box_height = text_height + (2 * padding_v)
 
         # Resolution (from ASS header)
         res_x = 1920
@@ -334,7 +335,8 @@ class VideoGenerator:
             'x2': x2,
             'y2': y2,
             'width': box_width,
-            'height': box_height
+            'height': box_height,
+            'corner_radius': 25  # Medium rounded corners
         }
 
     def _srt_time_to_ass(self, srt_time):
@@ -431,10 +433,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # ASS color format: &HAABBGGRR (alpha, blue, green, red in hex)
             # For drawing, we need &HAABBGGRR format as-is
 
-            # Event 1: Draw background box (Layer 0)
-            # ASS Drawing commands: m (move), l (line), c (close)
-            # Drawing rectangle: m x1 y1 l x2 y1 l x2 y2 l x1 y2
-            drawing_cmd = f"m {box['x1']} {box['y1']} l {box['x2']} {box['y1']} l {box['x2']} {box['y2']} l {box['x1']} {box['y2']}"
+            # Event 1: Draw background box with rounded corners (Layer 0)
+            # ASS Drawing commands: m (move), l (line), b (bezier curve for rounded corners)
+            # Rounded rectangle using bezier curves at corners
+            r = box['corner_radius']
+            x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
+
+            # Draw rounded rectangle path (clockwise from top-left after corner)
+            # Format: m start_x start_y l ... b cx1 cy1 cx2 cy2 x y (bezier curve)
+            drawing_cmd = (
+                f"m {x1+r} {y1} "  # Start: top edge after left corner
+                f"l {x2-r} {y1} "  # Top edge to right corner
+                f"b {x2} {y1} {x2} {y1} {x2} {y1+r} "  # Top-right corner (bezier)
+                f"l {x2} {y2-r} "  # Right edge
+                f"b {x2} {y2} {x2} {y2} {x2-r} {y2} "  # Bottom-right corner
+                f"l {x1+r} {y2} "  # Bottom edge
+                f"b {x1} {y2} {x1} {y2} {x1} {y2-r} "  # Bottom-left corner
+                f"l {x1} {y1+r} "  # Left edge
+                f"b {x1} {y1} {x1} {y1} {x1+r} {y1}"   # Top-left corner (close)
+            )
 
             # Drawing tags:
             # \p1 = enable drawing mode
