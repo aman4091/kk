@@ -924,3 +924,179 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
         except Exception as e:
             print(f"❌ Error downloading default reference: {e}")
             return False
+
+    # =========================================================================
+    # VIDEO GENERATION SETTINGS
+    # =========================================================================
+
+    def get_video_settings(self, chat_id):
+        """
+        Get video generation settings for a chat
+
+        Args:
+            chat_id: Telegram chat ID
+
+        Returns:
+            dict: Video settings or default settings if not found
+        """
+        try:
+            if not self.is_connected():
+                return self._default_video_settings()
+
+            result = self.client.table('video_settings').select('*').eq('chat_id', str(chat_id)).execute()
+
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            else:
+                # Return default settings
+                return self._default_video_settings()
+
+        except Exception as e:
+            print(f"❌ Error getting video settings: {e}")
+            return self._default_video_settings()
+
+    def _default_video_settings(self):
+        """Default video settings"""
+        return {
+            'chat_id': None,
+            'video_enabled': True,  # Default ON
+            'subtitle_style': 'Style: Banner,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H00000000,-1,0,0,0,100,100,0,0,3,12,0,5,40,40,40,1',
+            'gdrive_image_folder_id': None
+        }
+
+    def set_video_enabled(self, chat_id, enabled):
+        """
+        Enable/disable video generation for a chat
+
+        Args:
+            chat_id: Telegram chat ID
+            enabled: True to enable, False to disable
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            if not self.is_connected():
+                print("⚠️ Supabase not connected - cannot save video settings")
+                return False
+
+            # Upsert (insert or update)
+            data = {
+                'chat_id': str(chat_id),
+                'video_enabled': enabled,
+                'updated_at': 'NOW()'
+            }
+
+            result = self.client.table('video_settings').upsert(data).execute()
+
+            status = "ENABLED" if enabled else "DISABLED"
+            print(f"✅ Video generation {status} for chat {chat_id}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Error setting video enabled: {e}")
+            return False
+
+    def set_subtitle_style(self, chat_id, style):
+        """
+        Set custom subtitle style for a chat
+
+        Args:
+            chat_id: Telegram chat ID
+            style: ASS style string
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            if not self.is_connected():
+                print("⚠️ Supabase not connected - cannot save subtitle style")
+                return False
+
+            # Upsert (insert or update)
+            data = {
+                'chat_id': str(chat_id),
+                'subtitle_style': style,
+                'updated_at': 'NOW()'
+            }
+
+            result = self.client.table('video_settings').upsert(data).execute()
+
+            print(f"✅ Subtitle style updated for chat {chat_id}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Error setting subtitle style: {e}")
+            return False
+
+    def set_gdrive_image_folder(self, chat_id, folder_id):
+        """
+        Set Google Drive image folder for a chat
+
+        Args:
+            chat_id: Telegram chat ID
+            folder_id: Google Drive folder ID
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            if not self.is_connected():
+                print("⚠️ Supabase not connected - cannot save folder ID")
+                return False
+
+            # Upsert (insert or update)
+            data = {
+                'chat_id': str(chat_id),
+                'gdrive_image_folder_id': folder_id,
+                'updated_at': 'NOW()'
+            }
+
+            result = self.client.table('video_settings').upsert(data).execute()
+
+            print(f"✅ GDrive image folder set for chat {chat_id}: {folder_id}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Error setting GDrive folder: {e}")
+            return False
+
+    def save_video_output(self, counter, chat_id, audio_path, video_path, gdrive_link, gofile_link, subtitle_style):
+        """
+        Save video output to database (for logging)
+
+        Args:
+            counter: Global counter
+            chat_id: Telegram chat ID
+            audio_path: Path to audio file
+            video_path: Path to video file
+            gdrive_link: Google Drive link
+            gofile_link: Gofile link
+            subtitle_style: ASS style used
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            if not self.is_connected():
+                print("⚠️ Supabase not connected - video output not saved")
+                return False
+
+            data = {
+                'counter': counter,
+                'chat_id': str(chat_id),
+                'audio_path': audio_path,
+                'video_path': video_path,
+                'gdrive_link': gdrive_link,
+                'gofile_link': gofile_link,
+                'subtitle_style_used': subtitle_style
+            }
+
+            result = self.client.table('video_outputs').insert(data).execute()
+
+            print(f"✅ Video output saved to database (counter: {counter})")
+            return True
+
+        except Exception as e:
+            print(f"❌ Error saving video output: {e}")
+            return False

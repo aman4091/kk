@@ -22,6 +22,11 @@ from dotenv import load_dotenv
 from supabase_client import SupabaseClient
 from transcribe_helper import get_youtube_transcript, SupaDataError
 from youtube_processor import YouTubeChannelProcessor, YouTubeProcessorError
+
+# Video generation imports
+from video_generator import VideoGenerator
+from gdrive_manager import GDriveImageManager
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -161,6 +166,11 @@ class WorkingF5Bot:
         self.chunks_dir = "chunks"
         os.makedirs(self.chunks_dir, exist_ok=True)
         print("✅ YouTube channel processor and Supabase client initialized")
+
+        # Initialize Video Generator & GDrive Manager
+        self.video_generator = VideoGenerator()
+        self.gdrive_manager = GDriveImageManager()
+        print("✅ Video generator and GDrive manager initialized")
         # Multi-chat configuration (Aman & Anu chats)
         self.active_chats = {
             "aman": "-1002343932866",  # Aman chat
@@ -6037,6 +6047,152 @@ class WorkingF5Bot:
         except Exception as e:
             await update.message.reply_text(f"❌ Stop command error: {str(e)}")
 
+    # =========================================================================
+    # VIDEO GENERATION COMMANDS
+    # =========================================================================
+
+    async def enable_video_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enable video generation for this chat"""
+        try:
+            chat_id = str(update.effective_chat.id)
+            success = self.supabase.set_video_enabled(chat_id, True)
+
+            if success:
+                await update.message.reply_text(
+                    "✅ Video generation ENABLED!\n\n"
+                    "🎬 From now on, all audio will also be converted to videos with subtitles.\n\n"
+                    "Use /disable_video to turn off video generation."
+                )
+            else:
+                await update.message.reply_text("❌ Failed to enable video generation")
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def disable_video_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Disable video generation for this chat"""
+        try:
+            chat_id = str(update.effective_chat.id)
+            success = self.supabase.set_video_enabled(chat_id, False)
+
+            if success:
+                await update.message.reply_text(
+                    "❌ Video generation DISABLED!\n\n"
+                    "🎤 Only audio will be generated (no videos).\n\n"
+                    "Use /enable_video to turn on video generation."
+                )
+            else:
+                await update.message.reply_text("❌ Failed to disable video generation")
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def video_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show current video generation settings"""
+        try:
+            chat_id = str(update.effective_chat.id)
+            settings = self.supabase.get_video_settings(chat_id)
+
+            status = "ENABLED ✅" if settings.get('video_enabled', False) else "DISABLED ❌"
+            style_preview = settings.get('subtitle_style', 'Default')[:60] + "..."
+            folder_id = settings.get('gdrive_image_folder_id') or os.getenv('VIDEO_IMAGE_FOLDER_ID') or "Not set"
+
+            await update.message.reply_text(
+                f"📊 VIDEO GENERATION STATUS\n\n"
+                f"🎬 Status: {status}\n"
+                f"📝 Subtitle Style: {style_preview}\n"
+                f"📁 Image Folder: {folder_id}\n\n"
+                f"Commands:\n"
+                f"/enable_video - Turn ON video generation\n"
+                f"/disable_video - Turn OFF video generation\n"
+                f"/set_subtitle_style - Change subtitle styling\n"
+                f"/set_video_folder - Set image folder"
+            )
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def set_subtitle_style_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Set custom ASS subtitle style
+
+        Usage: /set_subtitle_style Style: Banner,Arial,48,&H00FFFFFF,...
+        """
+        try:
+            chat_id = str(update.effective_chat.id)
+
+            if not context.args:
+                # Show current style and examples
+                current_settings = self.supabase.get_video_settings(chat_id)
+                current_style = current_settings.get('subtitle_style', 'Default')
+
+                await update.message.reply_text(
+                    "📝 SUBTITLE STYLE CONFIGURATION\n\n"
+                    f"Current style:\n{current_style}\n\n"
+                    "Usage: /set_subtitle_style <ASS_style_string>\n\n"
+                    "Example (center banner style):\n"
+                    "/set_subtitle_style Style: Banner,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H00000000,-1,0,0,0,100,100,0,0,3,12,0,5,40,40,40,1\n\n"
+                    "Check ass_style_cheatsheet.txt for more styles!"
+                )
+                return
+
+            # Join all args as style string
+            ass_style = ' '.join(context.args)
+
+            success = self.supabase.set_subtitle_style(chat_id, ass_style)
+
+            if success:
+                await update.message.reply_text(
+                    f"✅ Subtitle style updated!\n\n"
+                    f"New style: {ass_style[:80]}...\n\n"
+                    f"This will be used for all future videos."
+                )
+            else:
+                await update.message.reply_text("❌ Failed to update subtitle style")
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def set_video_folder_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Set Google Drive folder ID for video images
+
+        Usage: /set_video_folder <folder_id>
+        """
+        try:
+            chat_id = str(update.effective_chat.id)
+
+            if not context.args:
+                await update.message.reply_text(
+                    "📁 SET VIDEO IMAGE FOLDER\n\n"
+                    "Usage: /set_video_folder <google_drive_folder_id>\n\n"
+                    "Example:\n"
+                    "/set_video_folder 1ABC123xyz456...\n\n"
+                    "To get folder ID:\n"
+                    "1. Open folder in Google Drive\n"
+                    "2. Copy ID from URL:\n"
+                    "   drive.google.com/drive/folders/[FOLDER_ID]\n\n"
+                    "Note: Bot needs access to this folder!"
+                )
+                return
+
+            folder_id = context.args[0]
+
+            success = self.supabase.set_gdrive_image_folder(chat_id, folder_id)
+
+            if success:
+                await update.message.reply_text(
+                    f"✅ Video image folder set!\n\n"
+                    f"📁 Folder ID: {folder_id}\n\n"
+                    f"Make sure to:\n"
+                    f"1. Upload images to this folder\n"
+                    f"2. Share folder with bot's Google account\n"
+                    f"3. Each video will use one image and delete it"
+                )
+            else:
+                await update.message.reply_text("❌ Failed to set folder ID")
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
 
     async def on_power(self, update, context):
         q = update.callback_query
@@ -6407,6 +6563,13 @@ async def async_main():
     # Reference Audio Management
     application.add_handler(CommandHandler("set_default_reference", bot_instance.set_default_reference_command))
     application.add_handler(CommandHandler("get_default_reference", bot_instance.get_default_reference_command))
+
+    # Video Generation Commands
+    application.add_handler(CommandHandler("enable_video", bot_instance.enable_video_command))
+    application.add_handler(CommandHandler("disable_video", bot_instance.disable_video_command))
+    application.add_handler(CommandHandler("video_status", bot_instance.video_status_command))
+    application.add_handler(CommandHandler("set_subtitle_style", bot_instance.set_subtitle_style_command))
+    application.add_handler(CommandHandler("set_video_folder", bot_instance.set_video_folder_command))
 
     # All other commands accessible via Settings menu:
     # - Test: Settings > Debug Tools > Run Test

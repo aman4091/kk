@@ -341,6 +341,94 @@
                     else:
                         await update.message.reply_text(f"⚠️ Failed to upload {filename}")
 
+            # ============================================================
+            # VIDEO GENERATION PIPELINE (if enabled)
+            # ============================================================
+
+            # Check if video generation is enabled for this chat
+            video_settings = self.supabase.get_video_settings(chat_id)
+
+            if video_settings and video_settings.get('video_enabled', False):
+                try:
+                    await update.message.reply_text("🎬 Starting video generation pipeline...")
+
+                    # Use enhanced audio for video
+                    audio_for_video = enhanced_output if os.path.exists(enhanced_output) else raw_output
+
+                    # 1. Fetch image from Google Drive
+                    image_folder_id = video_settings.get('gdrive_image_folder_id') or os.getenv('VIDEO_IMAGE_FOLDER_ID')
+
+                    if not image_folder_id:
+                        await update.message.reply_text("⚠️ Video image folder not configured. Use /set_video_folder <folder_id>")
+                    else:
+                        image_path, image_file_id = await asyncio.to_thread(
+                            self.gdrive_manager.fetch_next_image_from_folder,
+                            image_folder_id
+                        )
+
+                        if not image_path:
+                            await update.message.reply_text("❌ No images found in folder. Please upload images to GDrive folder.")
+                        else:
+                            # 2. Create video with subtitles (complete pipeline)
+                            video_output_path = f"output/{counter}_final_video.mp4"
+                            subtitle_style = video_settings.get('subtitle_style')
+
+                            final_video = await asyncio.to_thread(
+                                self.video_generator.create_video_with_subtitles,
+                                image_path,
+                                audio_for_video,
+                                video_output_path,
+                                subtitle_style
+                            )
+
+                            if final_video:
+                                # 3. Upload video to Google Drive
+                                gdrive_link = await self.upload_to_google_drive(
+                                    final_video,
+                                    channel_name=f"Video_{counter}"
+                                )
+
+                                # 4. Upload video to Gofile
+                                video_gofile_link = await self.upload_single_to_gofile(final_video)
+
+                                # 5. Delete image from GDrive (cleanup)
+                                if image_file_id:
+                                    await asyncio.to_thread(
+                                        self.gdrive_manager.delete_image_from_gdrive,
+                                        image_file_id
+                                    )
+
+                                # 6. Save to database
+                                self.supabase.save_video_output(
+                                    counter,
+                                    chat_id,
+                                    audio_for_video,
+                                    final_video,
+                                    gdrive_link,
+                                    video_gofile_link,
+                                    subtitle_style
+                                )
+
+                                # 7. Send links
+                                video_filename = os.path.basename(final_video)
+                                video_size_mb = os.path.getsize(final_video) // (1024 * 1024)
+
+                                message = f"🎬 **{video_filename}** ({video_size_mb} MB)\n"
+                                if video_gofile_link:
+                                    message += f"📥 Gofile: {video_gofile_link}\n"
+                                if gdrive_link:
+                                    message += f"📁 GDrive: {gdrive_link}"
+
+                                await update.message.reply_text(message, parse_mode="Markdown")
+
+                                print(f"✅ Video generation complete: {final_video}")
+                            else:
+                                await update.message.reply_text("❌ Video generation failed")
+
+                except Exception as e:
+                    print(f"❌ Video pipeline error: {e}")
+                    await update.message.reply_text(f"❌ Video generation error: {str(e)[:100]}")
+
             return links
 
         except Exception as e:
