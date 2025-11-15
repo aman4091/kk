@@ -295,29 +295,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ass_events = []
         srt_blocks = srt_content.strip().split('\n\n')
 
-        # Parse style to estimate box geometry and placement
-        style_info = self._parse_ass_style_line(ass_style)
-        play_res_x = 1920
-        play_res_y = 1080
-        fontsize = style_info.get('Fontsize', 48)
-        outline = style_info.get('Outline', 10)
-        align = style_info.get('Alignment', 5)
-        margin_l = style_info.get('MarginL', 40)
-        margin_r = style_info.get('MarginR', 40)
-        margin_v = style_info.get('MarginV', 40)
-
-        # Box appearance from OutlineColour (fallback to semi-transparent black)
-        outline_col = style_info.get('OutlineColour', '&H80000000')
-        alpha, b, g, r = self._ass_color_components(outline_col)
-        # Build fill tags for vector box: use \1c for fill color and \1a for alpha
-        fill_c_tag = f"\\1c&H{b:02X}{g:02X}{r:02X}&"
-        fill_a_tag = f"\\1a&H{alpha:02X}&"
-
-        # Geometry helpers
-        char_w = max(1.0, fontsize * 0.55)  # approximate average Arial char width
-        line_spacing = 1.15                  # line height multiplier
-        pad = max(6, int(outline))          # padding around text in pixels
-
         for block in srt_blocks:
             lines = block.strip().split('\n')
             if len(lines) < 3:
@@ -333,125 +310,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_time = self._srt_time_to_ass(end_time.strip())
 
             # Parse text (line 3+)
-            raw_lines = lines[2:]
-            # Use \N (ASS line break) to keep both lines together as one block
-            text = '\\N'.join(raw_lines)
+            # Use \N (ASS line break) to keep all lines in single box
+            text = '\\N'.join(lines[2:])
 
-            # Estimate text block geometry
-            visible_lines = [l for l in raw_lines if l.strip() != ''] or [' ']
-            max_chars = max(len(l) for l in visible_lines)
-            est_width = int(min(play_res_x - margin_l - margin_r, max_chars * char_w + 2 * pad))
-            est_height = int(len(visible_lines) * (fontsize * line_spacing) + 2 * pad)
-
-            # Determine rectangle position based on alignment
-            # Horizontal center by default (for 2/5/8); extend left/right margins for others as needed
-            if align in (1, 4, 7):
-                # left aligned
-                x1 = margin_l
-                x2 = x1 + est_width
-            elif align in (3, 6, 9):
-                # right aligned
-                x2 = play_res_x - margin_r
-                x1 = x2 - est_width
-            else:
-                # centered
-                cx = play_res_x // 2
-                x1 = int(cx - est_width / 2)
-                x2 = int(cx + est_width / 2)
-
-            if align in (7, 8, 9):
-                # top row
-                y1 = margin_v
-                y2 = y1 + est_height
-            elif align in (1, 2, 3):
-                # bottom row
-                y2 = play_res_y - margin_v
-                y1 = y2 - est_height
-            else:
-                # middle row (Alignment 4/5/6). Positive MarginV moves down.
-                cy = play_res_y // 2 + margin_v
-                y1 = int(cy - est_height / 2)
-                y2 = int(cy + est_height / 2)
-
-            # Prepare a background rectangle using ASS drawing (vector path)
-            # Render rectangle below text on lower layer
-            draw_path = f"m {x1} {y1} l {x2} {y1} l {x2} {y2} l {x1} {y2}"
-            # Alignment for drawing: match text block roughly (center/middle for 5, etc.)
-            an_tag = f"\\an{align}"
-            rect_event = (
-                f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,," \
-                f"{{{an_tag}{fill_c_tag}{fill_a_tag}\\bord0\\shad0\\p1}}{draw_path}{{\\p0}}"
-            )
-            ass_events.append(rect_event)
-
-            # Now add the text event above the rectangle, suppressing any per-line box
-            text_overrides = "{\\bord0\\shad0\\3a&HFF&}"  # hide BorderStyle=3 boxes per-line
-            text_event = (
-                f"Dialogue: 1,{start_time},{end_time},Default,,0,0,0,," \
-                f"{text_overrides}{text}"
-            )
-            ass_events.append(text_event)
+            # Create ASS event
+            # Format: Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+            # NO alignment tag needed - style already has Alignment parameter
+            ass_event = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}"
+            ass_events.append(ass_event)
 
         # Combine header + events
         return ass_header + '\n'.join(ass_events)
-
-    def _parse_ass_style_line(self, style_line):
-        """Parse an ASS 'Style: ...' line into a dict of key fields used for layout/colors."""
-        # Expect: Style: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,
-        #         Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,
-        #         Alignment,MarginL,MarginR,MarginV,Encoding
-        result = {
-            'Fontsize': 48,
-            'OutlineColour': '&H80000000',
-            'Outline': 10,
-            'Alignment': 5,
-            'MarginL': 40,
-            'MarginR': 40,
-            'MarginV': 40,
-        }
-        try:
-            if not style_line.startswith('Style:'):
-                return result
-            parts = style_line.split(':', 1)[1].split(',')
-            parts = [p.strip() for p in parts]
-            # Guard for short styles
-            if len(parts) < 23:
-                return result
-            # Map fields we need
-            result['Fontsize'] = int(float(parts[2]))
-            result['OutlineColour'] = parts[5]
-            result['Outline'] = int(float(parts[16]))
-            result['Alignment'] = int(parts[18])
-            result['MarginL'] = int(parts[19])
-            result['MarginR'] = int(parts[20])
-            result['MarginV'] = int(parts[21])
-        except Exception:
-            pass
-        return result
-
-    def _ass_color_components(self, colour):
-        """Parse ASS colour '&HAABBGGRR' into (alpha, b, g, r) integers."""
-        try:
-            s = colour.strip().upper()
-            if s.startswith('&H'):
-                s = s[2:]
-            # If only BGR given, assume opaque
-            if len(s) == 6:
-                aa = 0x00
-                bb = int(s[0:2], 16)
-                gg = int(s[2:4], 16)
-                rr = int(s[4:6], 16)
-                return aa, bb, gg, rr
-            if len(s) >= 8:
-                aa = int(s[0:2], 16)
-                bb = int(s[2:4], 16)
-                gg = int(s[4:6], 16)
-                rr = int(s[6:8], 16)
-                return aa, bb, gg, rr
-        except Exception:
-            pass
-        # Fallback semi-transparent black
-        return 0x80, 0x00, 0x00, 0x00
 
     def burn_subtitles(self, video_path, ass_path, output_path):
         """
