@@ -5001,8 +5001,134 @@ class WorkingF5Bot:
                     chat_id=actual_chat_id,
                     text=summary_text
                 )
+
+            # ============================================================
+            # VIDEO GENERATION PIPELINE (Script Mode)
+            # ============================================================
+
+            # Check if video generation is enabled
+            video_settings = self.supabase.get_video_settings(actual_chat_id)
+
+            if video_settings and video_settings.get('video_enabled', False) and self.completed_files:
+                try:
+                    await context.bot.send_message(
+                        chat_id=actual_chat_id,
+                        text="🎬 Starting video generation pipeline..."
+                    )
+
+                    # Lazy load video modules (only when needed)
+                    if not self.video_generator:
+                        from video_generator import VideoGenerator
+                        self.video_generator = VideoGenerator()
+                        print("✅ VideoGenerator loaded")
+
+                    if not self.gdrive_manager:
+                        from gdrive_manager import GDriveImageManager
+                        self.gdrive_manager = GDriveImageManager()
+                        print("✅ GDriveImageManager loaded")
+
+                    # Use last completed file's audio path
+                    last_file = self.completed_files[-1]
+                    audio_path = last_file.get('file_path')
+
+                    if not audio_path or not os.path.exists(audio_path):
+                        await context.bot.send_message(
+                            chat_id=actual_chat_id,
+                            text="⚠️ Audio file not found for video generation"
+                        )
+                    else:
+                        # 1. Fetch image from Google Drive
+                        image_folder_id = video_settings.get('gdrive_image_folder_id') or os.getenv('VIDEO_IMAGE_FOLDER_ID')
+
+                        if not image_folder_id:
+                            await context.bot.send_message(
+                                chat_id=actual_chat_id,
+                                text="⚠️ Video image folder not configured. Use /set_video_folder <folder_id>"
+                            )
+                        else:
+                            image_path, image_file_id = await asyncio.to_thread(
+                                self.gdrive_manager.fetch_next_image_from_folder,
+                                image_folder_id
+                            )
+
+                            if not image_path:
+                                await context.bot.send_message(
+                                    chat_id=actual_chat_id,
+                                    text="❌ No images found in folder. Please upload images to GDrive folder."
+                                )
+                            else:
+                                # 2. Create video with subtitles
+                                video_output_path = audio_path.replace('.wav', '_final_video.mp4')
+                                subtitle_style = video_settings.get('subtitle_style')
+
+                                final_video = await asyncio.to_thread(
+                                    self.video_generator.create_video_with_subtitles,
+                                    image_path,
+                                    audio_path,
+                                    video_output_path,
+                                    subtitle_style
+                                )
+
+                                if final_video:
+                                    # 3. Upload video to Google Drive
+                                    gdrive_link = await self.upload_to_google_drive(
+                                        final_video,
+                                        channel_name="Script_Video"
+                                    )
+
+                                    # 4. Upload video to Gofile
+                                    video_gofile_link = await self.upload_single_to_gofile(final_video)
+
+                                    # 5. Delete image from GDrive (cleanup)
+                                    if image_file_id:
+                                        await asyncio.to_thread(
+                                            self.gdrive_manager.delete_image_from_gdrive,
+                                            image_file_id
+                                        )
+
+                                    # 6. Save to database
+                                    counter = getattr(self, 'current_counter', 0)
+                                    self.supabase.save_video_output(
+                                        counter,
+                                        actual_chat_id,
+                                        audio_path,
+                                        final_video,
+                                        gdrive_link,
+                                        video_gofile_link,
+                                        subtitle_style
+                                    )
+
+                                    # 7. Send links
+                                    video_filename = os.path.basename(final_video)
+                                    video_size_mb = os.path.getsize(final_video) // (1024 * 1024)
+
+                                    message = f"🎬 **{video_filename}** ({video_size_mb} MB)\n"
+                                    if video_gofile_link:
+                                        message += f"📥 Gofile: {video_gofile_link}\n"
+                                    if gdrive_link:
+                                        message += f"📁 GDrive: {gdrive_link}"
+
+                                    await context.bot.send_message(
+                                        chat_id=actual_chat_id,
+                                        text=message
+                                    )
+
+                                    print(f"✅ Video generation complete: {final_video}")
+                                else:
+                                    await context.bot.send_message(
+                                        chat_id=actual_chat_id,
+                                        text="❌ Video generation failed"
+                                    )
+
+                except Exception as e:
+                    print(f"❌ Video pipeline error: {e}")
+                    await context.bot.send_message(
+                        chat_id=actual_chat_id,
+                        text=f"❌ Video generation error: {str(e)[:100]}"
+                    )
+
             # No completion message here - let user decide about video first
-            
+
         except Exception as e:
             error_msg = f"❌ Queue processing error: {str(e)}"
             print(error_msg)
