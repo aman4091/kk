@@ -167,10 +167,10 @@ class WorkingF5Bot:
         os.makedirs(self.chunks_dir, exist_ok=True)
         print("✅ YouTube channel processor and Supabase client initialized")
 
-        # Initialize Video Generator & GDrive Manager
-        self.video_generator = VideoGenerator()
-        self.gdrive_manager = GDriveImageManager()
-        print("✅ Video generator and GDrive manager initialized")
+        # Initialize Video Generator & GDrive Manager (lazy load)
+        self.video_generator = None
+        self.gdrive_manager = None
+        print("✅ Video modules ready (will load when needed)")
         # Multi-chat configuration (Aman & Anu chats)
         self.active_chats = {
             "aman": "-1002343932866",  # Aman chat

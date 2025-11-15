@@ -352,6 +352,17 @@
                 try:
                     await update.message.reply_text("🎬 Starting video generation pipeline...")
 
+                    # Lazy load video modules (only when needed)
+                    if not self.video_generator:
+                        from video_generator import VideoGenerator
+                        self.video_generator = VideoGenerator()
+                        print("✅ VideoGenerator loaded")
+
+                    if not self.gdrive_manager:
+                        from gdrive_manager import GDriveImageManager
+                        self.gdrive_manager = GDriveImageManager()
+                        print("✅ GDriveImageManager loaded")
+
                     # Use enhanced audio for video
                     audio_for_video = enhanced_output if os.path.exists(enhanced_output) else raw_output
 
