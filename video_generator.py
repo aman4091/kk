@@ -26,14 +26,45 @@ class VideoGenerator:
             print("✅ Whisper model loaded")
         return self.whisper_model
 
-    def create_video_from_image_audio(self, image_path, audio_path, output_path):
+    def _get_audio_duration(self, audio_path):
+        """Get audio duration in seconds using FFprobe"""
+        try:
+            cmd = [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                audio_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            return float(result.stdout.strip())
+        except:
+            return 0
+
+    def _get_video_duration(self, video_path):
+        """Get video duration in seconds using FFprobe"""
+        try:
+            cmd = [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                video_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            return float(result.stdout.strip())
+        except:
+            return 0
+
+    def create_video_from_image_audio(self, image_path, audio_path, output_path, progress_callback=None):
         """
-        Create MP4 video from static image + audio
+        Create MP4 video from static image + audio with real-time progress
 
         Args:
             image_path: Path to image file
             audio_path: Path to audio file (WAV/MP3)
             output_path: Output video path (MP4)
+            progress_callback: Optional function(percentage, message) for progress updates
 
         Returns:
             bool: True if successful
@@ -52,6 +83,9 @@ class VideoGenerator:
                 print(f"❌ Audio not found: {audio_path}")
                 return False
 
+            # Get audio duration for progress calculation
+            duration = self._get_audio_duration(audio_path)
+
             # FFmpeg command: Loop image for duration of audio
             cmd = [
                 'ffmpeg',
@@ -64,17 +98,38 @@ class VideoGenerator:
                 '-b:a', '192k',                   # Audio bitrate
                 '-pix_fmt', 'yuv420p',            # Pixel format (compatibility)
                 '-shortest',                      # Match shortest input (audio duration)
+                '-progress', 'pipe:1',            # Enable progress output
                 '-y',                             # Overwrite output
                 output_path
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Run FFmpeg with real-time progress monitoring
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     universal_newlines=True, bufsize=1)
 
-            if result.returncode == 0:
+            # Monitor progress
+            for line in process.stdout:
+                if line.startswith('out_time_ms='):
+                    # Extract current time in microseconds
+                    time_ms = int(line.split('=')[1])
+                    current_time = time_ms / 1000000  # Convert to seconds
+
+                    if duration > 0:
+                        percentage = min(100, (current_time / duration) * 100)
+                        print(f"\r📹 Video creation progress: {percentage:.1f}%", end='', flush=True)
+
+                        if progress_callback:
+                            progress_callback(percentage, f"Creating video: {percentage:.1f}%")
+
+            process.wait()
+            print()  # New line after progress
+
+            if process.returncode == 0:
                 print(f"✅ Video created: {output_path}")
                 return True
             else:
-                print(f"❌ FFmpeg error: {result.stderr}")
+                stderr = process.stderr.read()
+                print(f"❌ FFmpeg error: {stderr}")
                 return False
 
         except Exception as e:
@@ -473,14 +528,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Combine header + events
         return ass_header + '\n'.join(ass_events)
 
-    def burn_subtitles(self, video_path, ass_path, output_path):
+    def burn_subtitles(self, video_path, ass_path, output_path, progress_callback=None):
         """
-        Burn ASS subtitles into video
+        Burn ASS subtitles into video with real-time progress
 
         Args:
             video_path: Input video path
             ass_path: ASS subtitle file path
             output_path: Output video with burned subtitles
+            progress_callback: Optional function(percentage, message) for progress updates
 
         Returns:
             bool: True if successful
@@ -497,6 +553,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 print(f"❌ ASS file not found: {ass_path}")
                 return False
 
+            # Get video duration for progress calculation
+            duration = self._get_video_duration(video_path)
+
             # FFmpeg command: Burn ASS subtitles
             # Use absolute path for ASS file to avoid path issues
             ass_abs_path = os.path.abspath(ass_path)
@@ -510,17 +569,38 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 '-i', video_path,
                 '-vf', f"ass={ass_abs_path}",
                 '-c:a', 'copy',                 # Copy audio (no re-encode)
+                '-progress', 'pipe:1',          # Enable progress output
                 '-y',
                 output_path
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Run FFmpeg with real-time progress monitoring
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     universal_newlines=True, bufsize=1)
 
-            if result.returncode == 0:
+            # Monitor progress
+            for line in process.stdout:
+                if line.startswith('out_time_ms='):
+                    # Extract current time in microseconds
+                    time_ms = int(line.split('=')[1])
+                    current_time = time_ms / 1000000  # Convert to seconds
+
+                    if duration > 0:
+                        percentage = min(100, (current_time / duration) * 100)
+                        print(f"\r🔥 Subtitle burning progress: {percentage:.1f}%", end='', flush=True)
+
+                        if progress_callback:
+                            progress_callback(percentage, f"Burning subtitles: {percentage:.1f}%")
+
+            process.wait()
+            print()  # New line after progress
+
+            if process.returncode == 0:
                 print(f"✅ Subtitles burned: {output_path}")
                 return True
             else:
-                print(f"❌ FFmpeg subtitle burn error: {result.stderr}")
+                stderr = process.stderr.read()
+                print(f"❌ FFmpeg subtitle burn error: {stderr}")
                 return False
 
         except Exception as e:
@@ -567,9 +647,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # Step 1: Create video (image + audio)
             print("\n📹 Step 1/4: Creating video from image + audio...")
-            send_progress("📹 [25%] Creating video from image + audio...")
+            send_progress("📹 [0-25%] Creating video from image + audio...")
 
-            if not self.create_video_from_image_audio(image_path, audio_path, temp_video):
+            # Progress callback for video creation (0-25% range)
+            def video_progress(pct, msg):
+                scaled_pct = pct * 0.25  # Scale to 0-25%
+                send_progress(f"📹 [{scaled_pct:.1f}%] {msg}")
+
+            if not self.create_video_from_image_audio(image_path, audio_path, temp_video, progress_callback=video_progress):
                 return None
 
             # Step 2: Generate subtitles with Whisper
@@ -588,9 +673,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # Step 4: Burn subtitles into video
             print("\n🔥 Step 4/4: Burning subtitles into video...")
-            send_progress("🔥 [90%] Burning subtitles into video...")
+            send_progress("🔥 [75-100%] Burning subtitles into video...")
 
-            if not self.burn_subtitles(temp_video, ass_path, output_path):
+            # Progress callback for subtitle burning (75-100% range)
+            def burn_progress(pct, msg):
+                scaled_pct = 75 + (pct * 0.25)  # Scale to 75-100%
+                send_progress(f"🔥 [{scaled_pct:.1f}%] {msg}")
+
+            if not self.burn_subtitles(temp_video, ass_path, output_path, progress_callback=burn_progress):
                 return None
 
             # Cleanup temp files
