@@ -156,7 +156,8 @@ class VideoGenerator:
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      universal_newlines=True, bufsize=1)
 
-            # Monitor progress
+            # Monitor progress with throttling to avoid spamming Telegram API
+            last_reported = 0  # Track last reported percentage
             for line in process.stdout:
                 if line.startswith('out_time_ms='):
                     # Extract current time in microseconds
@@ -165,10 +166,15 @@ class VideoGenerator:
 
                     if duration > 0:
                         percentage = min(100, (current_time / duration) * 100)
-                        print(f"\r📹 Video creation progress: {percentage:.1f}%", end='', flush=True)
 
-                        if progress_callback:
-                            progress_callback(percentage, f"Creating video: {percentage:.1f}%")
+                        # Throttle: Only update every 5% to avoid API rate limits
+                        if percentage - last_reported >= 5.0 or percentage >= 99.9:
+                            print(f"\r📹 Video creation progress: {percentage:.1f}%", end='', flush=True)
+
+                            if progress_callback:
+                                progress_callback(percentage, f"Creating video: {percentage:.1f}%")
+
+                            last_reported = percentage
 
             process.wait()
             print()  # New line after progress
@@ -643,7 +649,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      universal_newlines=True, bufsize=1)
 
-            # Monitor progress
+            # Monitor progress with throttling to avoid spamming Telegram API
+            last_reported = 0  # Track last reported percentage
             for line in process.stdout:
                 if line.startswith('out_time_ms='):
                     # Extract current time in microseconds
@@ -652,10 +659,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                     if duration > 0:
                         percentage = min(100, (current_time / duration) * 100)
-                        print(f"\r🔥 Subtitle burning progress: {percentage:.1f}%", end='', flush=True)
 
-                        if progress_callback:
-                            progress_callback(percentage, f"Burning subtitles: {percentage:.1f}%")
+                        # Throttle: Only update every 5% to avoid API rate limits
+                        if percentage - last_reported >= 5.0 or percentage >= 99.9:
+                            print(f"\r🔥 Subtitle burning progress: {percentage:.1f}%", end='', flush=True)
+
+                            if progress_callback:
+                                progress_callback(percentage, f"Burning subtitles: {percentage:.1f}%")
+
+                            last_reported = percentage
 
             process.wait()
             print()  # New line after progress
