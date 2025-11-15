@@ -99,12 +99,13 @@ class VideoGenerator:
             if not self.whisper_model:
                 self.load_whisper_model()
 
-            # Transcribe audio
+            # Transcribe audio with formatting options
             result = self.whisper_model.transcribe(
                 audio_path,
                 task="transcribe",
                 language="en",
-                verbose=False
+                verbose=False,
+                word_timestamps=False  # Don't split by words (prevents overlapping boxes)
             )
 
             # Default output path
@@ -126,7 +127,7 @@ class VideoGenerator:
             return None
 
     def _write_srt(self, segments, output_path):
-        """Write Whisper segments to SRT format"""
+        """Write Whisper segments to SRT format with line wrapping"""
         with open(output_path, 'w', encoding='utf-8') as f:
             for i, segment in enumerate(segments, 1):
                 # Subtitle index
@@ -137,8 +138,47 @@ class VideoGenerator:
                 end = self._format_timestamp(segment['end'])
                 f.write(f"{start} --> {end}\n")
 
-                # Text
-                f.write(f"{segment['text'].strip()}\n\n")
+                # Text with line wrapping (max 50 chars per line for 1920x1080)
+                text = segment['text'].strip()
+                wrapped_text = self._wrap_text(text, max_chars=50)
+                f.write(f"{wrapped_text}\n\n")
+
+    def _wrap_text(self, text, max_chars=50):
+        """
+        Wrap text to multiple lines for better readability
+
+        Args:
+            text: Input text
+            max_chars: Maximum characters per line (default 50 for 1920x1080)
+
+        Returns:
+            str: Text with line breaks
+        """
+        words = text.split()
+        lines = []
+        current_line = []
+        current_length = 0
+
+        for word in words:
+            word_length = len(word)
+            # +1 for space
+            if current_length + word_length + len(current_line) > max_chars:
+                if current_line:
+                    lines.append(' '.join(current_line))
+                    current_line = [word]
+                    current_length = word_length
+                else:
+                    # Single word longer than max_chars - add it anyway
+                    lines.append(word)
+            else:
+                current_line.append(word)
+                current_length += word_length
+
+        # Add remaining words
+        if current_line:
+            lines.append(' '.join(current_line))
+
+        return '\n'.join(lines)
 
     def _format_timestamp(self, seconds):
         """Format seconds to SRT timestamp (HH:MM:SS,mmm)"""
@@ -232,10 +272,11 @@ class VideoGenerator:
         ass_header = """[Script Info]
 Title: Generated Subtitles
 ScriptType: v4.00+
-Collisions: Normal
+Collisions: Reverse
 PlayDepth: 0
 PlayResX: 1920
 PlayResY: 1080
+WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
