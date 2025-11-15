@@ -14,16 +14,47 @@ from pathlib import Path
 
 class VideoGenerator:
     def __init__(self):
-        """Initialize video generator with Whisper model"""
+        """Initialize video generator with Whisper model and GPU detection"""
         self.whisper_model = None
+        self.gpu_encoder = self._detect_gpu_encoder()
         print("✅ VideoGenerator initialized")
 
+    def _detect_gpu_encoder(self):
+        """Detect available NVIDIA hardware encoder for FFmpeg"""
+        try:
+            result = subprocess.run(
+                ['ffmpeg', '-hide_banner', '-encoders'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            # Check for NVENC encoders
+            if 'h264_nvenc' in result.stdout:
+                print("🚀 GPU Encoder: NVIDIA h264_nvenc detected")
+                return 'h264_nvenc'
+            else:
+                print("⚠️  GPU Encoder: Not found, using CPU (libx264)")
+                return 'libx264'
+        except Exception as e:
+            print(f"⚠️  GPU Encoder detection failed: {e}, using CPU (libx264)")
+            return 'libx264'
+
     def load_whisper_model(self, model_size="base"):
-        """Load Whisper model for subtitle generation"""
+        """Load Whisper model for subtitle generation with GPU support"""
         if not self.whisper_model:
-            print(f"🔄 Loading Whisper model ({model_size})...")
-            self.whisper_model = whisper.load_model(model_size)
-            print("✅ Whisper model loaded")
+            # Auto-detect GPU availability for Whisper
+            try:
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                print(f"🔄 Loading Whisper model ({model_size}) on {device.upper()}...")
+                self.whisper_model = whisper.load_model(model_size, device=device)
+                print(f"✅ Whisper model loaded on {device.upper()}")
+            except Exception as e:
+                # Fallback to CPU if GPU fails
+                print(f"⚠️  GPU loading failed, using CPU: {e}")
+                self.whisper_model = whisper.load_model(model_size)
+                print("✅ Whisper model loaded on CPU")
         return self.whisper_model
 
     def _get_audio_duration(self, audio_path):
@@ -86,14 +117,32 @@ class VideoGenerator:
             # Get audio duration for progress calculation
             duration = self._get_audio_duration(audio_path)
 
-            # FFmpeg command: Loop image for duration of audio
+            # FFmpeg command: Loop image for duration of audio with GPU encoding
             cmd = [
                 'ffmpeg',
                 '-loop', '1',                     # Loop image
                 '-i', image_path,                 # Input image
                 '-i', audio_path,                 # Input audio
-                '-c:v', 'libx264',                # Video codec
-                '-tune', 'stillimage',            # Optimize for still image
+                '-c:v', self.gpu_encoder,         # Video codec (GPU if available)
+            ]
+
+            # Add GPU-specific flags for NVENC
+            if self.gpu_encoder == 'h264_nvenc':
+                cmd.extend([
+                    '-preset', 'p4',              # NVENC preset (p1=fast, p7=slow/quality)
+                    '-tune', 'hq',                # High quality tuning
+                    '-rc', 'vbr',                 # Variable bitrate
+                    '-cq', '23',                  # Quality level (lower=better, 23=good)
+                    '-b:v', '5M',                 # Target bitrate
+                ])
+            else:
+                # CPU encoding options (libx264)
+                cmd.extend([
+                    '-tune', 'stillimage',        # Optimize for still image
+                ])
+
+            # Common options
+            cmd.extend([
                 '-c:a', 'aac',                    # Audio codec
                 '-b:a', '192k',                   # Audio bitrate
                 '-pix_fmt', 'yuv420p',            # Pixel format (compatibility)
@@ -101,7 +150,7 @@ class VideoGenerator:
                 '-progress', 'pipe:1',            # Enable progress output
                 '-y',                             # Overwrite output
                 output_path
-            ]
+            ])
 
             # Run FFmpeg with real-time progress monitoring
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -564,15 +613,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if os.name == 'nt':
                 ass_abs_path = ass_abs_path.replace('\\', '/').replace(':', '\\:')
 
+            # FFmpeg command: Burn ASS subtitles with GPU encoding
             cmd = [
                 'ffmpeg',
                 '-i', video_path,
                 '-vf', f"ass={ass_abs_path}",
+                '-c:v', self.gpu_encoder,       # Video codec (GPU if available)
+            ]
+
+            # Add GPU-specific flags for NVENC
+            if self.gpu_encoder == 'h264_nvenc':
+                cmd.extend([
+                    '-preset', 'p4',            # NVENC preset (balanced speed/quality)
+                    '-tune', 'hq',              # High quality tuning
+                    '-rc', 'vbr',               # Variable bitrate
+                    '-cq', '23',                # Quality level
+                    '-b:v', '5M',               # Target bitrate
+                ])
+
+            # Common options
+            cmd.extend([
                 '-c:a', 'copy',                 # Copy audio (no re-encode)
                 '-progress', 'pipe:1',          # Enable progress output
                 '-y',
                 output_path
-            ]
+            ])
 
             # Run FFmpeg with real-time progress monitoring
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
