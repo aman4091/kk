@@ -384,12 +384,17 @@
                             video_output_path = f"output/{counter}_final_video.mp4"
                             subtitle_style = video_settings.get('subtitle_style')
 
+                            # Progress callback for Telegram updates
+                            async def video_progress(msg):
+                                await update.message.reply_text(msg)
+
                             final_video = await asyncio.to_thread(
                                 self.video_generator.create_video_with_subtitles,
                                 image_path,
                                 audio_for_video,
                                 video_output_path,
-                                subtitle_style
+                                subtitle_style,
+                                video_progress
                             )
 
                             if final_video:

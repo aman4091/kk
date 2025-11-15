@@ -189,6 +189,33 @@ class VideoGenerator:
             print(f"❌ SRT→ASS conversion error: {e}")
             return None
 
+    def _srt_time_to_ass(self, srt_time):
+        """
+        Convert SRT time format to ASS time format
+
+        SRT:  00:00:01,500 (HH:MM:SS,mmm - milliseconds)
+        ASS:  0:00:01.50  (H:MM:SS.cc - centiseconds)
+
+        Args:
+            srt_time: SRT format time string (e.g., "00:00:01,500")
+
+        Returns:
+            str: ASS format time string (e.g., "0:00:01.50")
+        """
+        # Split by comma: "00:00:01,500" → ["00:00:01", "500"]
+        time_part, ms_part = srt_time.split(',')
+
+        # Parse HH:MM:SS
+        h, m, s = time_part.split(':')
+        h = int(h)  # Remove leading zeros (00 → 0)
+
+        # Convert milliseconds to centiseconds (1000ms → 100cs)
+        # 500ms → 50cs, 100ms → 10cs
+        centiseconds = int(ms_part) // 10
+
+        # Format: H:MM:SS.cc (centiseconds are 2 digits)
+        return f"{h}:{m}:{s}.{centiseconds:02d}"
+
     def _create_ass_from_srt(self, srt_content, ass_style):
         """
         Create complete ASS file from SRT content with custom style
@@ -241,8 +268,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 continue
 
             start_time, end_time = timing_line.split('-->')
-            start_time = start_time.strip().replace(',', '.')
-            end_time = end_time.strip().replace(',', '.')
+            start_time = self._srt_time_to_ass(start_time.strip())
+            end_time = self._srt_time_to_ass(end_time.strip())
 
             # Parse text (line 3+)
             text = '\\N'.join(lines[2:])  # \\N is ASS line break
@@ -309,7 +336,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             print(f"❌ Subtitle burn error: {e}")
             return False
 
-    def create_video_with_subtitles(self, image_path, audio_path, output_path, ass_style=None):
+    def create_video_with_subtitles(self, image_path, audio_path, output_path, ass_style=None, progress_callback=None):
         """
         Complete pipeline: Image + Audio → Video with subtitles
 
@@ -318,6 +345,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             audio_path: Path to audio
             output_path: Final output video path
             ass_style: Optional custom ASS style
+            progress_callback: Optional async function(message) for progress updates
 
         Returns:
             str: Path to final video or None if failed
@@ -338,21 +366,37 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # Step 1: Create video (image + audio)
             print("\n📹 Step 1/4: Creating video from image + audio...")
+            if progress_callback:
+                import asyncio
+                asyncio.create_task(progress_callback("📹 [25%] Creating video from image + audio..."))
+
             if not self.create_video_from_image_audio(image_path, audio_path, temp_video):
                 return None
 
             # Step 2: Generate subtitles with Whisper
             print("\n📝 Step 2/4: Generating subtitles with Whisper...")
+            if progress_callback:
+                import asyncio
+                asyncio.create_task(progress_callback("📝 [50%] Generating subtitles with Whisper AI..."))
+
             if not self.generate_subtitles_whisper(audio_path, srt_path):
                 return None
 
             # Step 3: Convert SRT → ASS with styling
             print("\n🎨 Step 3/4: Converting SRT → ASS with styling...")
+            if progress_callback:
+                import asyncio
+                asyncio.create_task(progress_callback("🎨 [75%] Converting subtitles to ASS format..."))
+
             if not self.convert_srt_to_ass(srt_path, ass_style, ass_path):
                 return None
 
             # Step 4: Burn subtitles into video
             print("\n🔥 Step 4/4: Burning subtitles into video...")
+            if progress_callback:
+                import asyncio
+                asyncio.create_task(progress_callback("🔥 [90%] Burning subtitles into video..."))
+
             if not self.burn_subtitles(temp_video, ass_path, output_path):
                 return None
 
@@ -364,6 +408,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 print("\n🧹 Cleaned up temporary files")
             except:
                 pass
+
+            if progress_callback:
+                import asyncio
+                asyncio.create_task(progress_callback("✅ [100%] Video generation complete!"))
 
             print("\n" + "="*60)
             print(f"✅ VIDEO PIPELINE COMPLETE: {output_path}")
