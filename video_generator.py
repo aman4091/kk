@@ -210,7 +210,7 @@ class VideoGenerator:
 
             # Default ASS style (if not provided)
             if not ass_style:
-                ass_style = 'Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,0,0,2,40,40,40,1'
+                ass_style = 'Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,4,0,0,5,40,40,40,1'
 
             # Parse SRT file
             with open(srt_path, 'r', encoding='utf-8') as f:
@@ -268,18 +268,14 @@ class VideoGenerator:
         Returns:
             str: Complete ASS file content
         """
-        # ASS file header (for 1920x1080 videos)
+        # ASS file header (minimal, matches working banner.ass)
         ass_header = """[Script Info]
-Title: Generated Subtitles
 ScriptType: v4.00+
-Collisions: Reverse
-PlayDepth: 0
 PlayResX: 1920
 PlayResY: 1080
-WrapStyle: 2
 
 [V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
 """
 
         # Add custom style (replace "Banner" with "Default" if needed)
@@ -317,13 +313,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Use \N (ASS line break) to keep all lines in single box
             text = '\\N'.join(lines[2:])
 
-            # Add \an5 tag for center alignment (keeps box centered, text inside aligned)
-            # This ensures single box with properly aligned multi-line text
-            text_with_alignment = '{\\an5}' + text
-
             # Create ASS event
             # Format: Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
-            ass_event = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text_with_alignment}"
+            # NO alignment tag needed - style already has Alignment parameter
+            ass_event = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}"
             ass_events.append(ass_event)
 
         # Combine header + events

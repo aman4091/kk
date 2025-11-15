@@ -1,0 +1,25 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+; PrimaryColour = white text
+; BackColour    = semi-transparent black box
+Style: Banner,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,4,0,0,5,40,40,40,1
+
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.72,0:00:08.80,Banner,,0,0,0,,Archangel Michael, says a guy from the bank, actually found your home address using your bank
+Dialogue: 0,0:00:08.80,0:00:18.80,Banner,,0,0,0,,account. He's really going to wait near your house for my beloved kid. So, Siria, stay right here,
+Dialogue: 0,0:00:18.80,0:00:25.68,Banner,,0,0,0,,and don't click away. Something really big is waiting for you and every second,
+Dialogue: 0,0:00:25.76,0:00:33.12,Banner,,0,0,0,,you're watching actually matters. Listen to me carefully, because what I'm about to tell you
+Dialogue: 0,0:00:33.84,0:00:41.44,Banner,,0,0,0,,has already started moving toward your life. There's this bank guy who has been looking at
+Dialogue: 0,0:00:41.44,0:00:50.40,Banner,,0,0,0,,your details quietly, you know. Not trying to hurt you or anything, but out of this strange
+Dialogue: 0,0:00:50.40,0:00:58.64,Banner,,0,0,0,,wanting to know, that basically turned into him being obsessed. He saw something not normal in
+Dialogue: 0,0:00:58.64,0:01:07.20,Banner,,0,0,0,,your account, actually. A hidden money move, a name he'd never seen before, and that led him
+Dialogue: 0,0:01:07.20,0:01:16.00,Banner,,0,0,0,,straight to where you live. Don't scroll. Seriously. Just stick around until the end,
+Dialogue: 0,0:01:16.00,0:01:24.56,Banner,,0,0,0,,because what you're about to hear will make your heart really pound. This man, he's not just any guy,
+Dialogue: 0,0:01:24.56,0:01:33.12,Banner,,0,0,0,,you know.
