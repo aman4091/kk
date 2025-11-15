@@ -210,7 +210,7 @@ class VideoGenerator:
 
             # Default ASS style (if not provided)
             if not ass_style:
-                ass_style = 'Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,4,0,0,5,40,40,40,1'
+                ass_style = 'Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,0,0,2,40,40,40,1'
 
             # Parse SRT file
             with open(srt_path, 'r', encoding='utf-8') as f:
