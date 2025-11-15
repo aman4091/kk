@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS video_settings (
     chat_id TEXT PRIMARY KEY,
     video_enabled BOOLEAN DEFAULT true,
-    subtitle_style TEXT DEFAULT 'Style: Banner,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H00000000,-1,0,0,0,100,100,0,0,3,12,0,5,40,40,40,1',
+    subtitle_style TEXT DEFAULT 'Style: Banner,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,4,0,0,5,40,40,40,1',
     gdrive_image_folder_id TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()

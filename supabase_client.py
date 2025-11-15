@@ -956,11 +956,11 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             return self._default_video_settings()
 
     def _default_video_settings(self):
-        """Default video settings"""
+        """Default video settings (matches F:\Scripts\God's message\banner.ass)"""
         return {
             'chat_id': None,
             'video_enabled': True,  # Default ON
-            'subtitle_style': 'Style: Banner,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H00000000,-1,0,0,0,100,100,0,0,3,12,0,5,40,40,40,1',
+            'subtitle_style': 'Style: Banner,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,4,0,0,5,40,40,40,1',
             'gdrive_image_folder_id': None
         }
 
