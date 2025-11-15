@@ -150,6 +150,7 @@ class VideoGenerator:
     def convert_srt_to_ass(self, srt_path, ass_style=None, output_ass_path=None):
         """
         Convert SRT to ASS format with custom styling
+        Creates complete ASS file manually (NOT using FFmpeg conversion)
 
         Args:
             srt_path: Path to SRT file
@@ -166,17 +167,20 @@ class VideoGenerator:
             if not output_ass_path:
                 output_ass_path = srt_path.replace('.srt', '.ass')
 
-            # Step 1: Use FFmpeg to convert SRT → basic ASS
-            cmd = ['ffmpeg', '-i', srt_path, '-y', output_ass_path]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Default ASS style (if not provided)
+            if not ass_style:
+                ass_style = 'Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,4,0,0,5,40,40,40,1'
 
-            if result.returncode != 0:
-                print(f"❌ FFmpeg SRT→ASS conversion failed: {result.stderr}")
-                return None
+            # Parse SRT file
+            with open(srt_path, 'r', encoding='utf-8') as f:
+                srt_content = f.read()
 
-            # Step 2: Inject custom ASS styling
-            if ass_style:
-                self._inject_ass_style(output_ass_path, ass_style)
+            # Create ASS file manually with proper structure
+            ass_content = self._create_ass_from_srt(srt_content, ass_style)
+
+            # Write ASS file
+            with open(output_ass_path, 'w', encoding='utf-8') as f:
+                f.write(ass_content)
 
             print(f"✅ ASS file created: {output_ass_path}")
             return output_ass_path
@@ -185,39 +189,71 @@ class VideoGenerator:
             print(f"❌ SRT→ASS conversion error: {e}")
             return None
 
-    def _inject_ass_style(self, ass_path, custom_style):
+    def _create_ass_from_srt(self, srt_content, ass_style):
         """
-        Inject custom ASS style into ASS file
+        Create complete ASS file from SRT content with custom style
 
         Args:
-            ass_path: Path to ASS file
-            custom_style: Full ASS style string (e.g., "Style: Banner,Arial,48,...")
+            srt_content: SRT file content as string
+            ass_style: Full ASS style string (e.g., "Style: Default,Arial,48,...")
+
+        Returns:
+            str: Complete ASS file content
         """
-        try:
-            with open(ass_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+        # ASS file header (for 1920x1080 videos)
+        ass_header = """[Script Info]
+Title: Generated Subtitles
+ScriptType: v4.00+
+Collisions: Normal
+PlayDepth: 0
+PlayResX: 1920
+PlayResY: 1080
 
-            # Find [V4+ Styles] section and replace default style
-            # Pattern: Style: Default,...
-            pattern = r'(Style:\s*Default,)[^\n]+'
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+"""
 
-            # Extract style parameters from custom_style (remove "Style: Banner," prefix)
-            # custom_style = "Style: Banner,Arial,48,&H00FFFFFF,..."
-            # We want: "Default,Arial,48,&H00FFFFFF,..."
-            if custom_style.startswith("Style:"):
-                # Remove "Style: " and replace name with "Default"
-                style_params = re.sub(r'Style:\s*\w+,', '', custom_style)
-                replacement = r'\g<1>' + style_params
-                content = re.sub(pattern, replacement, content)
+        # Add custom style (replace "Banner" with "Default" if needed)
+        if 'Style: Banner,' in ass_style:
+            ass_style = ass_style.replace('Style: Banner,', 'Style: Default,')
+        elif not ass_style.startswith('Style:'):
+            ass_style = 'Style: Default,' + ass_style
 
-            # Write back
-            with open(ass_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+        ass_header += ass_style + '\n\n'
 
-            print(f"✅ Custom ASS style injected")
+        # Events section header
+        ass_header += """[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
 
-        except Exception as e:
-            print(f"⚠️ ASS style injection failed: {e}")
+        # Parse SRT and convert to ASS events
+        ass_events = []
+        srt_blocks = srt_content.strip().split('\n\n')
+
+        for block in srt_blocks:
+            lines = block.strip().split('\n')
+            if len(lines) < 3:
+                continue
+
+            # Parse timing (line 2: 00:00:01,000 --> 00:00:05,000)
+            timing_line = lines[1]
+            if '-->' not in timing_line:
+                continue
+
+            start_time, end_time = timing_line.split('-->')
+            start_time = start_time.strip().replace(',', '.')
+            end_time = end_time.strip().replace(',', '.')
+
+            # Parse text (line 3+)
+            text = '\\N'.join(lines[2:])  # \\N is ASS line break
+
+            # Create ASS event
+            # Format: Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+            ass_event = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}"
+            ass_events.append(ass_event)
+
+        # Combine header + events
+        return ass_header + '\n'.join(ass_events)
 
     def burn_subtitles(self, video_path, ass_path, output_path):
         """
