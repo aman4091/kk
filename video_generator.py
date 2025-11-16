@@ -117,15 +117,8 @@ class VideoGenerator:
             # Get audio duration for progress calculation
             duration = self._get_audio_duration(audio_path)
 
-            # GPU encoder override: Force CPU for long videos (h264_nvenc hangs at ~76% on 40+ min videos)
-            encoder = self.gpu_encoder
-            if duration > 1800:  # 30 minutes
-                print(f"⚠️  Video duration: {duration/60:.1f} minutes (>{30} min)")
-                print(f"⚠️  Forcing CPU encoder (libx264) - GPU hangs on long videos")
-                encoder = 'libx264'
-            else:
-                print(f"✅ Video duration: {duration/60:.1f} minutes (<{30} min)")
-                print(f"✅ Using {encoder} encoder")
+            print(f"ℹ️  Video duration: {duration/60:.1f} minutes")
+            print(f"ℹ️  Using {self.gpu_encoder} encoder")
 
             # FFmpeg command: Loop image for duration of audio with GPU encoding
             cmd = [
@@ -133,11 +126,11 @@ class VideoGenerator:
                 '-loop', '1',                     # Loop image
                 '-i', image_path,                 # Input image
                 '-i', audio_path,                 # Input audio
-                '-c:v', encoder,                  # Video codec (GPU or CPU based on duration)
+                '-c:v', self.gpu_encoder,         # Video codec (GPU if available)
             ]
 
             # Add GPU-specific flags for NVENC
-            if encoder == 'h264_nvenc':
+            if self.gpu_encoder == 'h264_nvenc':
                 cmd.extend([
                     '-preset', 'p4',              # NVENC preset (p1=fast, p7=slow/quality)
                     '-tune', 'hq',                # High quality tuning
@@ -652,15 +645,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Get video duration for progress calculation
             duration = self._get_video_duration(video_path)
 
-            # GPU encoder override: Force CPU for long videos
-            encoder = self.gpu_encoder
-            if duration > 1800:  # 30 minutes
-                print(f"⚠️  Video duration: {duration/60:.1f} minutes (>{30} min)")
-                print(f"⚠️  Forcing CPU encoder (libx264) for subtitle burning")
-                encoder = 'libx264'
-            else:
-                print(f"✅ Video duration: {duration/60:.1f} minutes (<{30} min)")
-                print(f"✅ Using {encoder} encoder for subtitle burning")
+            print(f"ℹ️  Video duration: {duration/60:.1f} minutes")
+            print(f"ℹ️  Using {self.gpu_encoder} encoder for subtitle burning")
 
             # FFmpeg command: Burn ASS subtitles
             # Use absolute path for ASS file to avoid path issues
@@ -675,11 +661,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 'ffmpeg',
                 '-i', video_path,
                 '-vf', f"ass={ass_abs_path}",
-                '-c:v', encoder,                # Video codec (GPU or CPU based on duration)
+                '-c:v', self.gpu_encoder,       # Video codec (GPU if available)
             ]
 
             # Add GPU-specific flags for NVENC
-            if encoder == 'h264_nvenc':
+            if self.gpu_encoder == 'h264_nvenc':
                 cmd.extend([
                     '-preset', 'p4',            # NVENC preset (balanced speed/quality)
                     '-tune', 'hq',              # High quality tuning
