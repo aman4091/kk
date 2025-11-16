@@ -153,38 +153,69 @@ class VideoGenerator:
             ])
 
             # Run FFmpeg with real-time progress monitoring
+            print(f"🔍 DEBUG: Starting FFmpeg process...")
+            print(f"🔍 DEBUG: Encoder: {self.gpu_encoder}")
+            print(f"🔍 DEBUG: Command: {' '.join(cmd[:10])}...")  # First 10 args
+
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      universal_newlines=True, bufsize=1)
+            print(f"🔍 DEBUG: Process started, PID: {process.pid}")
 
             # Monitor progress with throttling to avoid spamming Telegram API
             last_reported = 0  # Track last reported percentage
-            for line in process.stdout:
-                if line.startswith('out_time_ms='):
-                    # Extract current time in microseconds
-                    time_ms = int(line.split('=')[1])
-                    current_time = time_ms / 1000000  # Convert to seconds
+            last_progress_time = 0
+            import time
 
-                    if duration > 0:
-                        percentage = min(100, (current_time / duration) * 100)
+            try:
+                for line in process.stdout:
+                    if line.startswith('out_time_ms='):
+                        # Extract current time in microseconds
+                        time_ms = int(line.split('=')[1])
+                        current_time = time_ms / 1000000  # Convert to seconds
 
-                        # Throttle: Only update every 5% to avoid API rate limits
-                        if percentage - last_reported >= 5.0 or percentage >= 99.9:
-                            print(f"\r📹 Video creation progress: {percentage:.1f}%", end='', flush=True)
+                        if duration > 0:
+                            percentage = min(100, (current_time / duration) * 100)
 
-                            if progress_callback:
-                                progress_callback(percentage, f"Creating video: {percentage:.1f}%")
+                            # Throttle: Only update every 5% to avoid API rate limits
+                            if percentage - last_reported >= 5.0 or percentage >= 99.9:
+                                print(f"\r📹 Video creation progress: {percentage:.1f}%", end='', flush=True)
+                                print(f" (time: {current_time:.1f}/{duration:.1f}s)", flush=True)
 
-                            last_reported = percentage
+                                if progress_callback:
+                                    progress_callback(percentage, f"Creating video: {percentage:.1f}%")
+
+                                last_reported = percentage
+                                last_progress_time = time.time()
+
+                    # Check for stalled progress (no update in 30 seconds)
+                    if last_progress_time > 0 and (time.time() - last_progress_time) > 30:
+                        print(f"\n⚠️ WARNING: No progress update for 30 seconds! Last: {last_reported:.1f}%")
+                        print(f"🔍 DEBUG: Checking if FFmpeg is still alive...")
+                        if process.poll() is not None:
+                            print(f"❌ FFmpeg process died! Return code: {process.returncode}")
+                            break
+                        last_progress_time = time.time()  # Reset timer
+
+            except Exception as e:
+                print(f"\n❌ Error during progress monitoring: {e}")
+                import traceback
+                traceback.print_exc()
 
             process.wait()
             print()  # New line after progress
+
+            # Capture stderr for detailed error info
+            stderr = process.stderr.read()
 
             if process.returncode == 0:
                 print(f"✅ Video created: {output_path}")
                 return True
             else:
-                stderr = process.stderr.read()
-                print(f"❌ FFmpeg error: {stderr}")
+                print(f"❌ FFmpeg failed with return code: {process.returncode}")
+                print(f"🔍 DEBUG: FFmpeg stderr output:")
+                print("=" * 80)
+                print(stderr[-2000:] if len(stderr) > 2000 else stderr)  # Last 2000 chars
+                print("=" * 80)
                 return False
 
         except Exception as e:
@@ -646,38 +677,67 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ])
 
             # Run FFmpeg with real-time progress monitoring
+            print(f"🔍 DEBUG: Starting subtitle burning...")
+            print(f"🔍 DEBUG: Encoder: {self.gpu_encoder}")
+
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      universal_newlines=True, bufsize=1)
+            print(f"🔍 DEBUG: Process started, PID: {process.pid}")
 
             # Monitor progress with throttling to avoid spamming Telegram API
             last_reported = 0  # Track last reported percentage
-            for line in process.stdout:
-                if line.startswith('out_time_ms='):
-                    # Extract current time in microseconds
-                    time_ms = int(line.split('=')[1])
-                    current_time = time_ms / 1000000  # Convert to seconds
+            last_progress_time = 0
+            import time
 
-                    if duration > 0:
-                        percentage = min(100, (current_time / duration) * 100)
+            try:
+                for line in process.stdout:
+                    if line.startswith('out_time_ms='):
+                        # Extract current time in microseconds
+                        time_ms = int(line.split('=')[1])
+                        current_time = time_ms / 1000000  # Convert to seconds
 
-                        # Throttle: Only update every 5% to avoid API rate limits
-                        if percentage - last_reported >= 5.0 or percentage >= 99.9:
-                            print(f"\r🔥 Subtitle burning progress: {percentage:.1f}%", end='', flush=True)
+                        if duration > 0:
+                            percentage = min(100, (current_time / duration) * 100)
 
-                            if progress_callback:
-                                progress_callback(percentage, f"Burning subtitles: {percentage:.1f}%")
+                            # Throttle: Only update every 5% to avoid API rate limits
+                            if percentage - last_reported >= 5.0 or percentage >= 99.9:
+                                print(f"\r🔥 Subtitle burning progress: {percentage:.1f}%", end='', flush=True)
+                                print(f" (time: {current_time:.1f}/{duration:.1f}s)", flush=True)
 
-                            last_reported = percentage
+                                if progress_callback:
+                                    progress_callback(percentage, f"Burning subtitles: {percentage:.1f}%")
+
+                                last_reported = percentage
+                                last_progress_time = time.time()
+
+                    # Check for stalled progress
+                    if last_progress_time > 0 and (time.time() - last_progress_time) > 30:
+                        print(f"\n⚠️ WARNING: No progress update for 30 seconds! Last: {last_reported:.1f}%")
+                        if process.poll() is not None:
+                            print(f"❌ FFmpeg process died! Return code: {process.returncode}")
+                            break
+                        last_progress_time = time.time()
+
+            except Exception as e:
+                print(f"\n❌ Error during subtitle burning monitoring: {e}")
+                import traceback
+                traceback.print_exc()
 
             process.wait()
             print()  # New line after progress
+
+            # Capture stderr
+            stderr = process.stderr.read()
 
             if process.returncode == 0:
                 print(f"✅ Subtitles burned: {output_path}")
                 return True
             else:
-                stderr = process.stderr.read()
-                print(f"❌ FFmpeg subtitle burn error: {stderr}")
+                print(f"❌ FFmpeg failed with return code: {process.returncode}")
+                print(f"🔍 DEBUG: FFmpeg stderr output:")
+                print("=" * 80)
+                print(stderr[-2000:] if len(stderr) > 2000 else stderr)
+                print("=" * 80)
                 return False
 
         except Exception as e:
