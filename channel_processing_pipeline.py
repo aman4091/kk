@@ -348,8 +348,12 @@
             # Check if video generation is enabled for this chat
             video_settings = self.supabase.get_video_settings(chat_id)
 
+            print(f"🔍 DEBUG: video_settings = {video_settings}")
+            print(f"🔍 DEBUG: video_enabled = {video_settings.get('video_enabled', False) if video_settings else 'NO SETTINGS'}")
+
             if video_settings and video_settings.get('video_enabled', False):
                 try:
+                    print(f"✅ Video generation is ENABLED for chat {chat_id}")
                     await update.message.reply_text("🎬 Starting video generation pipeline...")
 
                     # Lazy load video modules (only when needed)
@@ -447,7 +451,14 @@
 
                 except Exception as e:
                     print(f"❌ Video pipeline error: {e}")
-                    await update.message.reply_text(f"❌ Video generation error: {str(e)[:100]}")
+                    import traceback
+                    traceback.print_exc()
+                    await update.message.reply_text(
+                        f"❌ Video generation error:\n{str(e)[:200]}\n\n"
+                        f"Check console logs for full traceback."
+                    )
+            else:
+                print(f"⚠️ Video generation SKIPPED - video_enabled = False or no settings for chat {chat_id}")
 
             return links
 
