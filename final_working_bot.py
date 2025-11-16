@@ -2887,11 +2887,9 @@ class WorkingF5Bot:
 
                             await send_msg("🎬 Creating video with subtitles...")
 
-                            last_pct = [0]
-                            async def vprog(pct, msg):
-                                if int(pct) - last_pct[0] >= 10 or pct >= 99:
-                                    await send_msg(f"📹 {msg}")
-                                    last_pct[0] = int(pct)
+                            async def vprog(msg):
+                                """Progress callback - receives message from video generator"""
+                                await send_msg(f"📹 {msg}")
 
                             loop = asyncio.get_event_loop()
                             final_video = await asyncio.to_thread(
