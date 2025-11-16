@@ -2845,6 +2845,108 @@ class WorkingF5Bot:
                 print(f"❌ File not found: {raw_output}")
                 await send_msg(f"❌ File not found: {os.path.basename(raw_output)}")
 
+
+            print(f"\n{'='*60}")
+            print(f"🔍 DEBUG: Audio complete, checking video settings")
+            print(f"🔍 chat_id={chat_id}, counter={counter}")
+            print(f"{'='*60}\n")
+
+            # VIDEO GENERATION PIPELINE
+            video_settings = None
+            if self.supabase.is_connected():
+                video_settings = self.supabase.get_video_settings(chat_id)
+                print(f"🔍 video_settings = {video_settings}")
+
+            if video_settings and video_settings.get('video_enabled', False):
+                try:
+                    print(f"✅ Video ENABLED for chat {chat_id}")
+                    await send_msg("🎬 Starting video generation...")
+
+                    if not hasattr(self, 'video_generator') or not self.video_generator:
+                        from video_generator import VideoGenerator
+                        self.video_generator = VideoGenerator()
+
+                    if not hasattr(self, 'gdrive_manager') or not self.gdrive_manager:
+                        from gdrive_manager import GDriveImageManager
+                        self.gdrive_manager = GDriveImageManager()
+
+                    image_folder_id = video_settings.get('gdrive_image_folder_id')
+                    if not image_folder_id:
+                        await send_msg("⚠️ Video folder not configured")
+                    else:
+                        await send_msg("🖼️ Fetching image from GDrive...")
+                        image_path, image_file_id = await asyncio.to_thread(
+                            self.gdrive_manager.fetch_next_image_from_folder,
+                            image_folder_id
+                        )
+
+                        if image_path:
+                            print(f"✅ Image: {image_path}")
+                            video_output_path = os.path.join(OUTPUT_DIR, f"{counter}_final_video.mp4")
+                            subtitle_style = video_settings.get('subtitle_style')
+
+                            await send_msg("🎬 Creating video with subtitles...")
+
+                            last_pct = [0]
+                            async def vprog(pct, msg):
+                                if int(pct) - last_pct[0] >= 10 or pct >= 99:
+                                    await send_msg(f"📹 {msg}")
+                                    last_pct[0] = int(pct)
+
+                            loop = asyncio.get_event_loop()
+                            final_video = await asyncio.to_thread(
+                                self.video_generator.create_video_with_subtitles,
+                                image_path, raw_output, video_output_path,
+                                subtitle_style, vprog, loop
+                            )
+
+                            if final_video and os.path.exists(final_video):
+                                vsz = os.path.getsize(final_video) // (1024*1024)
+                                await send_msg(f"✅ Video created ({vsz} MB)")
+
+                                await send_msg("☁️ Uploading to GDrive...")
+                                gdrive_link = await self.upload_to_google_drive(
+                                    final_video,
+                                    channel_name=channel_name if channel_name else f"Video_{counter}"
+                                )
+
+                                await send_msg("📤 Uploading to Gofile...")
+                                vgf_link = await self.upload_single_to_gofile(final_video)
+
+                                if image_file_id:
+                                    await asyncio.to_thread(
+                                        self.gdrive_manager.delete_image_from_gdrive,
+                                        image_file_id
+                                    )
+
+                                if self.supabase.is_connected():
+                                    self.supabase.save_video_output(
+                                        counter, chat_id, raw_output,
+                                        final_video, gdrive_link, vgf_link,
+                                        subtitle_style
+                                    )
+
+                                msg = f"🎬 **{os.path.basename(final_video)}** ({vsz} MB)\n"
+                                if vgf_link:
+                                    msg += f"📥 Gofile: {vgf_link}\n"
+                                if gdrive_link:
+                                    msg += f"📁 GDrive: {gdrive_link}"
+                                await send_msg(msg)
+                                print(f"✅ Video complete: {final_video}")
+                            else:
+                                await send_msg("❌ Video generation failed")
+                                print("❌ Video file not created")
+                        else:
+                            await send_msg("❌ No images in GDrive folder")
+                            print("❌ No image available")
+
+                except Exception as e:
+                    print(f"❌ Video pipeline error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    await send_msg(f"❌ Video error: {str(e)[:200]}")
+            else:
+                print(f"⚠️ Video generation SKIPPED for chat {chat_id}")
             return (links, counter, script_path)
 
         except Exception as e:
