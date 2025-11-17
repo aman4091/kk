@@ -2905,16 +2905,7 @@ class WorkingF5Bot:
                                     )
 
                                 pending = self.video_queue_manager.get_pending_jobs_count()
-                                message_text = (
-                                    f"✅ **Video Queued!** (Job #{job_id})
-
-"
-                                    f"📋 Queue: {pending}
-"
-                                    f"⏱️ Est: 40-60 min
-"
-                                    f"📢 Notification when ready!"
-                                )
+                                message_text = f"✅ **Video Queued!** (Job #{job_id})\n\n📋 Queue: {pending}\n⏱️ Est: 40-60 min\n📢 Notification when ready!"
                                 await send_msg(message_text)
                                 print(f"✅ Job created: {job_id}")
                             else:
