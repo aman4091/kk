@@ -47,7 +47,7 @@ class LocalVideoWorker:
         self.hostname = platform.node()
 
         # Initialize clients
-        print("🔄 Initializing worker components...")
+        print("🔄 Initializing worker components...", flush=True)
         self.supabase = SupabaseClient()
         self.gdrive = GDriveImageManager()
         self.video_gen = VideoGenerator()
@@ -68,12 +68,13 @@ class LocalVideoWorker:
         self.max_retries = 3
         self.heartbeat_interval = 5  # Send heartbeat every 5 polls
 
-        print(f"✅ Worker ID: {self.worker_id}")
-        print(f"✅ Work directory: {self.work_dir}")
-        print(f"✅ Poll interval: {self.poll_interval}s")
+        print(f"✅ Worker ID: {self.worker_id}", flush=True)
+        print(f"✅ Work directory: {self.work_dir}", flush=True)
+        print(f"✅ Poll interval: {self.poll_interval}s", flush=True)
 
     def register_worker(self):
         """Register worker in database"""
+        print("📝 Registering worker in database...", flush=True)
         try:
             self.supabase.client.table('video_workers').upsert({
                 'worker_id': self.worker_id,
@@ -83,10 +84,10 @@ class LocalVideoWorker:
                 'last_heartbeat': datetime.now().isoformat()
             }).execute()
 
-            print("✅ Worker registered in database")
+            print("✅ Worker registered in database", flush=True)
 
         except Exception as e:
-            print(f"⚠️  Worker registration failed: {e}")
+            print(f"⚠️  Worker registration failed: {e}", flush=True)
 
     def send_heartbeat(self):
         """Send heartbeat to mark worker as online"""
@@ -106,21 +107,25 @@ class LocalVideoWorker:
         Returns:
             Job dict or None
         """
+        print("🔍 Checking for pending jobs...", flush=True)
         try:
+            # Simplified query - just get pending jobs without complex ordering
             result = self.supabase.client.table('video_jobs')\
                 .select('*')\
                 .eq('status', 'pending')\
-                .order('priority', desc=True)\
-                .order('created_at', desc=False)\
                 .limit(1)\
                 .execute()
+
+            print(f"✅ Query completed, found {len(result.data) if result.data else 0} job(s)", flush=True)
 
             if result.data:
                 return result.data[0]
             return None
 
         except Exception as e:
-            print(f"❌ Error fetching job: {e}")
+            print(f"❌ Error fetching job: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
             return None
 
     def mark_job_processing(self, job_id: str):
@@ -282,42 +287,46 @@ class LocalVideoWorker:
         video_path = None
 
         try:
-            print(f"\n{'='*60}")
-            print(f"🎬 Processing Job: {job_id}")
-            print(f"   Chat ID: {chat_id}")
-            print(f"   Created: {job['created_at']}")
-            print(f"{'='*60}\n")
+            print(f"\n{'='*60}", flush=True)
+            print(f"🎬 Processing Job: {job_id}", flush=True)
+            print(f"   Chat ID: {chat_id}", flush=True)
+            print(f"   Created: {job['created_at']}", flush=True)
+            print(f"{'='*60}\n", flush=True)
 
             # Mark as processing
+            print(f"📝 Marking job as processing...", flush=True)
             self.mark_job_processing(job_id)
+            print(f"✅ Job marked as processing", flush=True)
 
             # 1. Download audio from Google Drive
-            print(f"📥 Downloading audio from Google Drive...")
+            print(f"📥 Downloading audio from Google Drive...", flush=True)
             audio_path = os.path.join(self.work_dir, f"{job_id}_audio.wav")
 
             if not self.download_from_gdrive(job['audio_gdrive_id'], audio_path):
                 raise Exception("Failed to download audio")
 
-            print(f"✅ Audio downloaded: {audio_path}")
+            print(f"✅ Audio downloaded: {audio_path}", flush=True)
 
             # 2. Download image from Google Drive
-            print(f"📥 Downloading image from Google Drive...")
+            print(f"📥 Downloading image from Google Drive...", flush=True)
             image_path = os.path.join(self.work_dir, f"{job_id}_image.jpg")
 
             if not self.download_from_gdrive(job['image_gdrive_id'], image_path):
                 raise Exception("Failed to download image")
 
-            print(f"✅ Image downloaded: {image_path}")
+            print(f"✅ Image downloaded: {image_path}", flush=True)
 
             # 3. Generate video with subtitles
-            print(f"🎬 Generating video with FFmpeg...")
+            print(f"🎬 Generating video with FFmpeg...", flush=True)
+            print(f"⏰ This will take 40-60 minutes for full video...", flush=True)
+            print(f"💡 Progress updates will appear every ~30 seconds", flush=True)
             video_path = os.path.join(self.work_dir, f"{job_id}_final_video.mp4")
 
             subtitle_style = job.get('subtitle_style')
 
             # Progress callback
             async def video_progress(msg):
-                print(f"   {msg}")
+                print(f"   {msg}", flush=True)
 
             # Get event loop
             loop = asyncio.get_event_loop()
@@ -381,8 +390,11 @@ class LocalVideoWorker:
 
             # 8. Cleanup queue files from Google Drive
             print(f"🧹 Cleaning up queue files...")
-            self.gdrive.delete_file(job['audio_gdrive_id'])
-            self.gdrive.delete_file(job['image_gdrive_id'])
+            try:
+                self.gdrive.delete_image_from_gdrive(job['audio_gdrive_id'])
+                self.gdrive.delete_image_from_gdrive(job['image_gdrive_id'])
+            except Exception as e:
+                print(f"⚠️  Cleanup warning: {e}")
 
             print(f"\n✅ Job {job_id} completed successfully!")
             print(f"{'='*60}\n")
@@ -441,13 +453,13 @@ class LocalVideoWorker:
 
     async def run(self):
         """Main worker loop"""
-        print(f"\n{'='*60}")
-        print(f"🚀 Starting Local Video Worker")
-        print(f"   Worker ID: {self.worker_id}")
-        print(f"   Hostname: {self.hostname}")
-        print(f"   GPU: RTX 4060")
-        print(f"   Poll interval: {self.poll_interval}s")
-        print(f"{'='*60}\n")
+        print(f"\n{'='*60}", flush=True)
+        print(f"🚀 Starting Local Video Worker", flush=True)
+        print(f"   Worker ID: {self.worker_id}", flush=True)
+        print(f"   Hostname: {self.hostname}", flush=True)
+        print(f"   GPU: RTX 4060", flush=True)
+        print(f"   Poll interval: {self.poll_interval}s", flush=True)
+        print(f"{'='*60}\n", flush=True)
 
         # Register worker
         self.register_worker()
@@ -466,8 +478,10 @@ class LocalVideoWorker:
                 job = self.get_pending_job()
 
                 if job:
-                    print(f"📋 Found pending job: {job['job_id']}")
+                    print(f"📋 Found pending job: {job['job_id']}", flush=True)
+                    print(f"🚀 Starting job processing...", flush=True)
                     await self.process_job(job)
+                    print(f"✅ Job processing complete", flush=True)
                 else:
                     print(f"⏳ No pending jobs. Waiting {self.poll_interval}s... (poll #{poll_count})")
 
@@ -498,17 +512,19 @@ class LocalVideoWorker:
 
 if __name__ == "__main__":
     """Entry point"""
+    print("🔧 Starting worker initialization...", flush=True)
     try:
         worker = LocalVideoWorker()
+        print("✅ Worker object created, starting main loop...", flush=True)
         asyncio.run(worker.run())
 
     except KeyboardInterrupt:
-        print("\n\n⚠️  Interrupted by user")
+        print("\n\n⚠️  Interrupted by user", flush=True)
 
     except Exception as e:
-        print(f"\n\n❌ Fatal error: {e}")
+        print(f"\n\n❌ Fatal error: {e}", flush=True)
         import traceback
         traceback.print_exc()
 
     finally:
-        print("\n✅ Worker shutdown complete")
+        print("\n✅ Worker shutdown complete", flush=True)

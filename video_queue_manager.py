@@ -55,7 +55,12 @@ class VideoQueueManager:
         Returns:
             Tuple[success: bool, job_id: str or None]
         """
-        job_id = str(counter)
+        # Generate unique job_id (use counter if available, otherwise timestamp)
+        import time
+        if counter is not None and counter > 0:
+            job_id = str(counter)
+        else:
+            job_id = str(int(time.time()))
 
         try:
             print(f"\n{'='*60}")

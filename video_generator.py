@@ -165,25 +165,42 @@ class VideoGenerator:
             ])
 
             # Run FFmpeg with real-time progress monitoring
-            print(f"🔍 DEBUG: Starting FFmpeg process...")
-            print(f"🔍 DEBUG: Encoder: {self.gpu_encoder}")
-            print(f"🔍 DEBUG: Command: {' '.join(cmd[:10])}...")  # First 10 args
+            import time
 
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     universal_newlines=True, bufsize=1)
-            print(f"🔍 DEBUG: Process started, PID: {process.pid}")
+            print(f"🔍 DEBUG: Starting FFmpeg process...", flush=True)
+            print(f"🔍 DEBUG: Encoder: {self.gpu_encoder}", flush=True)
+            print(f"🔍 DEBUG: Command: {' '.join(cmd[:10])}...", flush=True)
+
+            # Redirect both stdout and stderr to stdout for unified reading
+            process = subprocess.Popen(cmd,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT,
+                                     universal_newlines=True,
+                                     bufsize=1)
+            print(f"🔍 DEBUG: Process started, PID: {process.pid}", flush=True)
+            print(f"⏱️ Encoding started... Progress updates every 5-10 seconds", flush=True)
 
             # Monitor progress with throttling to avoid spamming Telegram API
             last_reported = 0  # Track last reported percentage
-            last_progress_time = 0
-            import time
+            last_progress_time = time.time()
+            line_count = 0
 
             try:
                 for line in process.stdout:
+                    line_count += 1
+                    # Print first 20 lines to see FFmpeg errors
+                    if line_count <= 20:
+                        print(f"🔍 Line {line_count}: {line.strip()}", flush=True)
                     if line.startswith('out_time_ms='):
-                        # Extract current time in microseconds
-                        time_ms = int(line.split('=')[1])
-                        current_time = time_ms / 1000000  # Convert to seconds
+                        try:
+                            # Extract current time in microseconds
+                            time_str = line.split('=')[1].strip()
+                            if time_str == 'N/A':
+                                continue
+                            time_ms = int(time_str)
+                            current_time = time_ms / 1000000  # Convert to seconds
+                        except (ValueError, IndexError):
+                            continue
 
                         if duration > 0:
                             percentage = min(100, (current_time / duration) * 100)
@@ -216,18 +233,11 @@ class VideoGenerator:
             process.wait()
             print()  # New line after progress
 
-            # Capture stderr for detailed error info
-            stderr = process.stderr.read()
-
             if process.returncode == 0:
-                print(f"✅ Video created: {output_path}")
+                print(f"✅ Video created: {output_path}", flush=True)
                 return True
             else:
-                print(f"❌ FFmpeg failed with return code: {process.returncode}")
-                print(f"🔍 DEBUG: FFmpeg stderr output:")
-                print("=" * 80)
-                print(stderr[-2000:] if len(stderr) > 2000 else stderr)  # Last 2000 chars
-                print("=" * 80)
+                print(f"❌ FFmpeg failed with return code: {process.returncode}", flush=True)
                 return False
 
         except Exception as e:
@@ -658,18 +668,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             print(f"ℹ️  Using {self.gpu_encoder} encoder for subtitle burning")
 
             # FFmpeg command: Burn ASS subtitles
-            # Use absolute path for ASS file to avoid path issues
+            # Use relative path from video directory to avoid path escaping issues
+            import shutil
+            video_dir = os.path.dirname(os.path.abspath(video_path))
             ass_abs_path = os.path.abspath(ass_path)
+            ass_filename = os.path.basename(ass_path)
 
-            # Windows path fix for FFmpeg (convert \ to / and escape :)
-            if os.name == 'nt':
-                ass_abs_path = ass_abs_path.replace('\\', '/').replace(':', '\\:')
+            # Check if ASS file is already in video directory
+            if os.path.dirname(ass_abs_path) != video_dir:
+                # Copy to video directory if different
+                temp_ass_path = os.path.join(video_dir, ass_filename)
+                shutil.copy2(ass_path, temp_ass_path)
+                print(f"🔍 DEBUG: Copied ASS to video dir: {ass_filename}", flush=True)
+            else:
+                print(f"🔍 DEBUG: ASS already in video dir: {ass_filename}", flush=True)
 
             # FFmpeg command: Burn ASS subtitles with GPU encoding
+            # Use absolute path for input video, relative path for ASS (in same dir)
+            video_abs_path = os.path.abspath(video_path)
+            output_abs_path = os.path.abspath(output_path)
+
             cmd = [
                 'ffmpeg',
-                '-i', video_path,
-                '-vf', f"ass={ass_abs_path}",
+                '-i', video_abs_path,
+                '-vf', f"subtitles={ass_filename}",
                 '-c:v', self.gpu_encoder,       # Video codec (GPU if available)
             ]
 
@@ -688,28 +710,41 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 '-c:a', 'copy',                 # Copy audio (no re-encode)
                 '-progress', 'pipe:1',          # Enable progress output
                 '-y',
-                output_path
+                output_abs_path
             ])
 
             # Run FFmpeg with real-time progress monitoring
             print(f"🔍 DEBUG: Starting subtitle burning...")
             print(f"🔍 DEBUG: Encoder: {self.gpu_encoder}")
+            print(f"🔍 DEBUG: Working dir: {video_dir}", flush=True)
 
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     universal_newlines=True, bufsize=1)
-            print(f"🔍 DEBUG: Process started, PID: {process.pid}")
+            # Run FFmpeg from video directory so relative path works
+            # Redirect stderr to stdout to read all output
+            process = subprocess.Popen(cmd,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT,
+                                     universal_newlines=True,
+                                     bufsize=1,
+                                     cwd=video_dir)  # Set working directory
+            print(f"🔍 DEBUG: Process started, PID: {process.pid}", flush=True)
 
             # Monitor progress with throttling to avoid spamming Telegram API
-            last_reported = 0  # Track last reported percentage
-            last_progress_time = 0
             import time
+            last_reported = 0  # Track last reported percentage
+            last_progress_time = time.time()
 
             try:
                 for line in process.stdout:
                     if line.startswith('out_time_ms='):
-                        # Extract current time in microseconds
-                        time_ms = int(line.split('=')[1])
-                        current_time = time_ms / 1000000  # Convert to seconds
+                        try:
+                            # Extract current time in microseconds
+                            time_str = line.split('=')[1].strip()
+                            if time_str == 'N/A':
+                                continue
+                            time_ms = int(time_str)
+                            current_time = time_ms / 1000000  # Convert to seconds
+                        except (ValueError, IndexError):
+                            continue
 
                         if duration > 0:
                             percentage = min(100, (current_time / duration) * 100)
@@ -741,18 +776,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             process.wait()
             print()  # New line after progress
 
-            # Capture stderr
-            stderr = process.stderr.read()
-
             if process.returncode == 0:
-                print(f"✅ Subtitles burned: {output_path}")
+                print(f"✅ Subtitles burned: {output_path}", flush=True)
                 return True
             else:
-                print(f"❌ FFmpeg failed with return code: {process.returncode}")
-                print(f"🔍 DEBUG: FFmpeg stderr output:")
-                print("=" * 80)
-                print(stderr[-2000:] if len(stderr) > 2000 else stderr)
-                print("=" * 80)
+                print(f"❌ FFmpeg failed with return code: {process.returncode}", flush=True)
                 return False
 
         except Exception as e:
