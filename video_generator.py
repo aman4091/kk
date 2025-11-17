@@ -21,6 +21,14 @@ class VideoGenerator:
 
     def _detect_gpu_encoder(self):
         """Detect available NVIDIA hardware encoder for FFmpeg"""
+        # Check if CPU encoding is forced via environment variable
+        force_cpu = os.getenv('FORCE_CPU_ENCODER', 'false').lower() in ('true', '1', 'yes')
+
+        if force_cpu:
+            print("🔧 FORCE_CPU_ENCODER enabled - Using CPU encoder (libx264)")
+            print("   This is slower but more stable for cloud environments")
+            return 'libx264'
+
         try:
             result = subprocess.run(
                 ['ffmpeg', '-hide_banner', '-encoders'],
@@ -39,6 +47,7 @@ class VideoGenerator:
         except Exception as e:
             print(f"⚠️  GPU Encoder detection failed: {e}, using CPU (libx264)")
             return 'libx264'
+
 
     def load_whisper_model(self, model_size="base"):
         """Load Whisper model for subtitle generation with GPU support"""
