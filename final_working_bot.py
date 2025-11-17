@@ -2851,7 +2851,7 @@ class WorkingF5Bot:
             print(f"🔍 chat_id={chat_id}, counter={counter}")
             print(f"{'='*60}\n")
 
-            # VIDEO GENERATION PIPELINE
+            # VIDEO JOB QUEUE SYSTEM (replaces direct generation)
             video_settings = None
             if self.supabase.is_connected():
                 video_settings = self.supabase.get_video_settings(chat_id)
@@ -2859,92 +2859,76 @@ class WorkingF5Bot:
 
             if video_settings and video_settings.get('video_enabled', False):
                 try:
-                    print(f"✅ Video ENABLED for chat {chat_id}")
-                    await send_msg("🎬 Starting video generation...")
+                    print(f"✅ Video ENABLED for chat {chat_id} - Creating queue job")
+                    await send_msg("📋 Queuing video for processing on local PC...")
 
-                    if not hasattr(self, 'video_generator') or not self.video_generator:
-                        from video_generator import VideoGenerator
-                        self.video_generator = VideoGenerator()
+                    # Lazy load queue manager
+                    if not hasattr(self, 'video_queue_manager') or not self.video_queue_manager:
+                        from video_queue_manager import VideoQueueManager
+                        from gdrive_manager import GDriveImageManager
+                        gdrive_mgr = GDriveImageManager()
+                        self.video_queue_manager = VideoQueueManager(self.supabase, gdrive_mgr)
+                        print("✅ VideoQueueManager loaded")
 
                     if not hasattr(self, 'gdrive_manager') or not self.gdrive_manager:
                         from gdrive_manager import GDriveImageManager
                         self.gdrive_manager = GDriveImageManager()
 
+                    # Fetch image
                     image_folder_id = video_settings.get('gdrive_image_folder_id')
                     if not image_folder_id:
                         await send_msg("⚠️ Video folder not configured")
                     else:
-                        await send_msg("🖼️ Fetching image from GDrive...")
+                        await send_msg("🖼️ Fetching image...")
                         image_path, image_file_id = await asyncio.to_thread(
                             self.gdrive_manager.fetch_next_image_from_folder,
                             image_folder_id
                         )
 
                         if image_path:
-                            print(f"✅ Image: {image_path}")
-                            video_output_path = os.path.join(OUTPUT_DIR, f"{counter}_final_video.mp4")
-                            subtitle_style = video_settings.get('subtitle_style')
+                            subtitle_style = video_settings.get('subtitle_style') or ''
+                            await send_msg("📤 Uploading to queue...")
 
-                            await send_msg("🎬 Creating video with subtitles...")
-
-                            async def vprog(msg):
-                                """Progress callback - receives message from video generator"""
-                                await send_msg(f"📹 {msg}")
-
-                            loop = asyncio.get_event_loop()
-                            final_video = await asyncio.to_thread(
-                                self.video_generator.create_video_with_subtitles,
-                                image_path, raw_output, video_output_path,
-                                subtitle_style, vprog, loop
+                            success, job_id = await self.video_queue_manager.create_video_job(
+                                audio_path=raw_output,
+                                image_path=image_path,
+                                counter=counter,
+                                chat_id=chat_id,
+                                subtitle_style=subtitle_style
                             )
 
-                            if final_video and os.path.exists(final_video):
-                                vsz = os.path.getsize(final_video) // (1024*1024)
-                                await send_msg(f"✅ Video created ({vsz} MB)")
-
-                                await send_msg("☁️ Uploading to GDrive...")
-                                gdrive_link = await self.upload_to_google_drive(
-                                    final_video,
-                                    channel_name=channel_name if channel_name else f"Video_{counter}"
-                                )
-
-                                await send_msg("📤 Uploading to Gofile...")
-                                vgf_link = await self.upload_single_to_gofile(final_video)
-
+                            if success:
                                 if image_file_id:
                                     await asyncio.to_thread(
                                         self.gdrive_manager.delete_image_from_gdrive,
                                         image_file_id
                                     )
 
-                                if self.supabase.is_connected():
-                                    self.supabase.save_video_output(
-                                        counter, chat_id, raw_output,
-                                        final_video, gdrive_link, vgf_link,
-                                        subtitle_style
-                                    )
+                                pending = self.video_queue_manager.get_pending_jobs_count()
+                                message_text = (
+                                    f"✅ **Video Queued!** (Job #{job_id})
 
-                                msg = f"🎬 **{os.path.basename(final_video)}** ({vsz} MB)\n"
-                                if vgf_link:
-                                    msg += f"📥 Gofile: {vgf_link}\n"
-                                if gdrive_link:
-                                    msg += f"📁 GDrive: {gdrive_link}"
-                                await send_msg(msg)
-                                print(f"✅ Video complete: {final_video}")
+"
+                                    f"📋 Queue: {pending}
+"
+                                    f"⏱️ Est: 40-60 min
+"
+                                    f"📢 Notification when ready!"
+                                )
+                                await send_msg(message_text)
+                                print(f"✅ Job created: {job_id}")
                             else:
-                                await send_msg("❌ Video generation failed")
-                                print("❌ Video file not created")
+                                await send_msg("❌ Queue failed")
                         else:
-                            await send_msg("❌ No images in GDrive folder")
-                            print("❌ No image available")
+                            await send_msg("❌ No images")
 
                 except Exception as e:
-                    print(f"❌ Video pipeline error: {e}")
+                    print(f"❌ Queue error: {e}")
                     import traceback
                     traceback.print_exc()
-                    await send_msg(f"❌ Video error: {str(e)[:200]}")
+                    await send_msg(f"❌ Error: {str(e)[:200]}")
             else:
-                print(f"⚠️ Video generation SKIPPED for chat {chat_id}")
+                print(f"⚠️ Video DISABLED for chat {chat_id}")
             return (links, counter, script_path)
 
         except Exception as e:
