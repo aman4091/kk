@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Local Video Worker - Runs on PC with RTX 4060
 Processes video jobs from queue (Supabase + Google Drive)
@@ -13,8 +14,23 @@ import platform
 from datetime import datetime
 from pathlib import Path
 
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 # Add current directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Load .env file if exists
+from dotenv import load_dotenv
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+    print(f"✅ Loaded environment from: {env_path}")
+else:
+    print(f"⚠️ No .env file found at: {env_path}")
 
 from supabase_client import SupabaseClient
 from gdrive_manager import GDriveImageManager
