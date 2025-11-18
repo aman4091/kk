@@ -2281,6 +2281,79 @@ class WorkingF5Bot:
         except Exception as e:
             await update.message.reply_text(f"❌ Error getting default reference: {str(e)}")
 
+    # =============================================================================
+    # IMAGE FOLDER SELECTION COMMANDS
+    # =============================================================================
+
+    async def setfolder_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Set image folder for video generation
+        Usage: /setfolder 0|1|2
+        0 = Nature (default), 1 = Jesus, 2 = Shorts
+        """
+        try:
+            if not context.args or len(context.args) == 0:
+                # Show current folder and options
+                folder_map = self.supabase.get_folder_mapping()
+                current_folder_id = self.supabase.get_current_image_folder()
+
+                # Find current folder name
+                current_name = "Unknown"
+                for num, info in folder_map.items():
+                    if info['id'] == current_folder_id:
+                        current_name = info['name']
+                        break
+
+                message = (
+                    f"📁 **Image Folder Selection**\n\n"
+                    f"Current folder: **{current_name}**\n\n"
+                    f"Available folders:\n"
+                )
+
+                for num, info in folder_map.items():
+                    marker = "✅" if info['id'] == current_folder_id else "📂"
+                    message += f"{marker} `/setfolder {num}` - {info['name']}\n"
+
+                message += "\n💡 Use `/setfolder <number>` to switch"
+
+                await update.message.reply_text(message, parse_mode="Markdown")
+                return
+
+            # Parse folder number
+            try:
+                folder_num = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Invalid folder number!\n\n"
+                    "Usage: `/setfolder 0|1|2`\n"
+                    "0 = Nature, 1 = Jesus, 2 = Shorts",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Set folder
+            success, result = self.supabase.set_current_image_folder(folder_num)
+
+            if success:
+                await update.message.reply_text(
+                    f"✅ **Image folder changed!**\n\n"
+                    f"Now using: **{result}**\n\n"
+                    f"All new videos will use images from this folder.",
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text(
+                    f"❌ Failed to set folder: {result}",
+                    parse_mode="Markdown"
+                )
+
+        except Exception as e:
+            error_msg = f"❌ Error: {str(e)}"
+            print(error_msg)
+            import traceback
+            print(traceback.format_exc())
+            await update.message.reply_text(error_msg)
+
 # YouTube Channel Processing Pipeline
 # Add this method to WorkingF5Bot class
 
@@ -6748,6 +6821,8 @@ async def async_main():
     # Reference Audio Management
     application.add_handler(CommandHandler("set_default_reference", bot_instance.set_default_reference_command))
     application.add_handler(CommandHandler("get_default_reference", bot_instance.get_default_reference_command))
+    # Image Folder Selection
+    application.add_handler(CommandHandler("setfolder", bot_instance.setfolder_command))
 
     # Video Generation Commands
     application.add_handler(CommandHandler("enable_video", bot_instance.enable_video_command))

@@ -946,7 +946,11 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             result = self.client.table('video_settings').select('*').eq('chat_id', str(chat_id)).execute()
 
             if result.data and len(result.data) > 0:
-                return result.data[0]
+                settings = result.data[0]
+                # If chat doesn't have folder ID set, use current global folder
+                if not settings.get('gdrive_image_folder_id'):
+                    settings['gdrive_image_folder_id'] = self.get_current_image_folder()
+                return settings
             else:
                 # Return default settings
                 return self._default_video_settings()
@@ -961,7 +965,7 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             'chat_id': None,
             'video_enabled': True,  # Default ON
             'subtitle_style': 'Style: Banner,Arial,48,&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,-1,0,0,0,100,100,0,0,4,0,0,5,40,40,40,1',
-            'gdrive_image_folder_id': None
+            'gdrive_image_folder_id': self.get_current_image_folder()  # Use current selected folder
         }
 
     def set_video_enabled(self, chat_id, enabled):
@@ -1100,3 +1104,98 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
         except Exception as e:
             print(f"❌ Error saving video output: {e}")
             return False
+
+    # =========================================================================
+    # IMAGE FOLDER MANAGEMENT
+    # =========================================================================
+
+    def get_folder_mapping(self):
+        """
+        Get mapping of folder numbers to Google Drive folder IDs
+
+        Returns:
+            dict: Folder number → {id, name} mapping
+        """
+        return {
+            0: {
+                'id': os.getenv('GDRIVE_IMAGE_FOLDER_DEFAULT'),
+                'name': 'Nature'
+            },
+            1: {
+                'id': os.getenv('GDRIVE_IMAGE_FOLDER_JESUS'),
+                'name': 'Jesus'
+            },
+            2: {
+                'id': os.getenv('GDRIVE_IMAGE_FOLDER_SHORTS'),
+                'name': 'Shorts'
+            }
+        }
+
+    def get_current_image_folder(self):
+        """
+        Get current active image folder ID (global setting)
+
+        Returns:
+            str: Google Drive folder ID
+        """
+        try:
+            if not self.is_connected():
+                # Return default folder if not connected
+                return os.getenv('GDRIVE_IMAGE_FOLDER_DEFAULT')
+
+            # Get global setting (we'll use chat_id='global' for global settings)
+            result = self.client.table('video_settings').select('gdrive_image_folder_id').eq('chat_id', 'global').execute()
+
+            if result.data and len(result.data) > 0:
+                folder_id = result.data[0].get('gdrive_image_folder_id')
+                if folder_id:
+                    return folder_id
+
+            # Return default if no setting found
+            return os.getenv('GDRIVE_IMAGE_FOLDER_DEFAULT')
+
+        except Exception as e:
+            print(f"❌ Error getting current folder: {e}")
+            return os.getenv('GDRIVE_IMAGE_FOLDER_DEFAULT')
+
+    def set_current_image_folder(self, folder_number: int):
+        """
+        Set current active image folder (global setting)
+
+        Args:
+            folder_number: Folder index (0=Nature, 1=Jesus, 2=Shorts)
+
+        Returns:
+            tuple: (success: bool, folder_name: str)
+        """
+        try:
+            if not self.is_connected():
+                return False, "Database not connected"
+
+            folder_map = self.get_folder_mapping()
+
+            if folder_number not in folder_map:
+                return False, f"Invalid folder number. Use 0-{len(folder_map)-1}"
+
+            folder_info = folder_map[folder_number]
+            folder_id = folder_info['id']
+            folder_name = folder_info['name']
+
+            if not folder_id:
+                return False, f"Folder ID not configured in .env"
+
+            # Upsert global setting
+            data = {
+                'chat_id': 'global',
+                'gdrive_image_folder_id': folder_id,
+                'updated_at': 'NOW()'
+            }
+
+            result = self.client.table('video_settings').upsert(data).execute()
+
+            print(f"✅ Image folder set to: {folder_name} ({folder_id})")
+            return True, folder_name
+
+        except Exception as e:
+            print(f"❌ Error setting image folder: {e}")
+            return False, str(e)
