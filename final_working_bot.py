@@ -127,7 +127,12 @@ class WorkingF5Bot:
 
         # Initialize defaults before loading config
         self.deepseek_prompt = "Rewrite this content to be more engaging:"
+        self.gemini_prompt = "Rewrite this content to be more engaging and natural for text-to-speech:"
         self.youtube_transcript_prompt = "Rewrite this YouTube transcript content to be more engaging and natural for text-to-speech:"
+
+        # AI Provider Settings
+        self.ai_provider = os.getenv("DEFAULT_AI_PROVIDER", "gemini")  # "gemini" or "deepseek"
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
         self.ai_mode = "deepseek"  # "deepseek" or "openrouter" - for YouTube transcript processing only
         self.openrouter_model = "deepseek/deepseek-chat"  # Default OpenRouter model
         self.ffmpeg_filter = "afftdn=nr=12:nf=-25,highpass=f=80,lowpass=f=10000,equalizer=f=6000:t=h:width=2000:g=-6"
@@ -357,6 +362,8 @@ class WorkingF5Bot:
             with open(self.config_file, 'r') as f:
                 config = json.load(f)
                 self.deepseek_prompt = config.get('deepseek_prompt', "Rewrite this content to be more engaging:")
+                self.gemini_prompt = config.get('gemini_prompt', "Rewrite this content to be more engaging and natural for text-to-speech:")
+                self.ai_provider = config.get('ai_provider', os.getenv("DEFAULT_AI_PROVIDER", "gemini"))
                 self.max_channel_videos = config.get('max_channel_videos', 6)
                 self.youtube_transcript_prompt = config.get('youtube_transcript_prompt', "Rewrite this YouTube transcript content to be more engaging and natural for text-to-speech:")
                 self.ai_mode = config.get('ai_mode', 'deepseek')
@@ -411,6 +418,8 @@ class WorkingF5Bot:
         try:
             config = {
                 'deepseek_prompt': self.deepseek_prompt,
+                'gemini_prompt': self.gemini_prompt,
+                'ai_provider': self.ai_provider,
                 'youtube_transcript_prompt': self.youtube_transcript_prompt,
                 'ai_mode': self.ai_mode,
                 'openrouter_model': self.openrouter_model,
