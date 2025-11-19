@@ -5339,7 +5339,7 @@ class WorkingF5Bot:
                         'timestamp': time.time(),
                         'file_path': audio_file_path  # Add audio file path
                     })
-                    
+
                     # Individual completion message
                     remaining = len(self.processing_queue)
                     await context.bot.send_message(
@@ -5348,6 +5348,102 @@ class WorkingF5Bot:
                              f"📊 Remaining in queue: {remaining}\n"
                              f"✅ Total completed: {len(self.completed_files)}"
                     )
+
+                    # ============================================================
+                    # VIDEO JOB CREATION (Per Audio File)
+                    # ============================================================
+                    # Create video job immediately after each audio file
+                    video_settings = self.supabase.get_video_settings(actual_chat_id)
+
+                    if video_settings and video_settings.get('video_enabled', False) and audio_file_path:
+                        try:
+                            await context.bot.send_message(
+                                chat_id=actual_chat_id,
+                                text=f"📋 Queuing video for {filename}..."
+                            )
+
+                            # Lazy load managers
+                            if not hasattr(self, 'video_queue_manager') or not self.video_queue_manager:
+                                from video_queue_manager import VideoQueueManager
+                                from gdrive_manager import GDriveImageManager
+                                gdrive_mgr = GDriveImageManager()
+                                self.video_queue_manager = VideoQueueManager(self.supabase, gdrive_mgr)
+                                print("✅ VideoQueueManager loaded")
+
+                            if not self.gdrive_manager:
+                                from gdrive_manager import GDriveImageManager
+                                self.gdrive_manager = GDriveImageManager()
+                                print("✅ GDriveImageManager loaded")
+
+                            # Get folder ID (use global setting if not set per chat)
+                            image_folder_id = video_settings.get('gdrive_image_folder_id')
+                            if not image_folder_id:
+                                image_folder_id = self.supabase.get_current_image_folder()
+
+                            if not image_folder_id:
+                                await context.bot.send_message(
+                                    chat_id=actual_chat_id,
+                                    text=f"⚠️ Video folder not configured for {filename}"
+                                )
+                            else:
+                                # Fetch image from Google Drive
+                                image_path, image_file_id = await asyncio.to_thread(
+                                    self.gdrive_manager.fetch_next_image_from_folder,
+                                    image_folder_id
+                                )
+
+                                if not image_path:
+                                    await context.bot.send_message(
+                                        chat_id=actual_chat_id,
+                                        text=f"❌ No images available for {filename}"
+                                    )
+                                else:
+                                    # Increment counter for this specific audio file
+                                    counter = self.supabase.increment_counter()
+
+                                    # Store counter in completed file
+                                    self.completed_files[-1]['video_counter'] = counter
+
+                                    subtitle_style = video_settings.get('subtitle_style') or ''
+
+                                    # Create video job
+                                    success, job_id = await self.video_queue_manager.create_video_job(
+                                        audio_path=audio_file_path,
+                                        image_path=image_path,
+                                        counter=counter,
+                                        chat_id=actual_chat_id,
+                                        subtitle_style=subtitle_style
+                                    )
+
+                                    if success:
+                                        # Delete image from GDrive after upload
+                                        if image_file_id:
+                                            await asyncio.to_thread(
+                                                self.gdrive_manager.delete_image_from_gdrive,
+                                                image_file_id
+                                            )
+
+                                        pending = self.video_queue_manager.get_pending_jobs_count()
+                                        await context.bot.send_message(
+                                            chat_id=actual_chat_id,
+                                            text=f"✅ Video queued for {filename}! (Job #{job_id})\n"
+                                                 f"📋 Queue: {pending} pending"
+                                        )
+                                        print(f"✅ Video job created: {job_id} for {filename}")
+                                    else:
+                                        await context.bot.send_message(
+                                            chat_id=actual_chat_id,
+                                            text=f"❌ Video queue failed for {filename}"
+                                        )
+
+                        except Exception as e:
+                            print(f"❌ Video queue error for {filename}: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            await context.bot.send_message(
+                                chat_id=actual_chat_id,
+                                text=f"❌ Video error for {filename}: {str(e)[:100]}"
+                            )
                     
                 else:
                     await context.bot.send_message(
@@ -5382,113 +5478,8 @@ class WorkingF5Bot:
                     text=summary_text
                 )
 
-            # ============================================================
-            # VIDEO JOB QUEUE SYSTEM (Script Mode)
-            # ============================================================
-
-            # Check if video generation is enabled
-            video_settings = self.supabase.get_video_settings(actual_chat_id)
-
-            if video_settings and video_settings.get('video_enabled', False) and self.completed_files:
-                try:
-                    await context.bot.send_message(
-                        chat_id=actual_chat_id,
-                        text="📋 Queuing video for processing on local PC..."
-                    )
-
-                    # Lazy load queue manager
-                    if not hasattr(self, 'video_queue_manager') or not self.video_queue_manager:
-                        from video_queue_manager import VideoQueueManager
-                        from gdrive_manager import GDriveImageManager
-                        gdrive_mgr = GDriveImageManager()
-                        self.video_queue_manager = VideoQueueManager(self.supabase, gdrive_mgr)
-                        print("✅ VideoQueueManager loaded")
-
-                    if not self.gdrive_manager:
-                        from gdrive_manager import GDriveImageManager
-                        self.gdrive_manager = GDriveImageManager()
-                        print("✅ GDriveImageManager loaded")
-
-                    # Use last completed file's audio path
-                    last_file = self.completed_files[-1]
-                    audio_path = last_file.get('file_path')
-                    counter = getattr(self, 'current_counter', 0)
-
-                    if not audio_path or not os.path.exists(audio_path):
-                        await context.bot.send_message(
-                            chat_id=actual_chat_id,
-                            text="⚠️ Audio file not found for video generation"
-                        )
-                    else:
-                        # Fetch image from Google Drive
-                        image_folder_id = video_settings.get('gdrive_image_folder_id') or os.getenv('VIDEO_IMAGE_FOLDER_ID')
-
-                        if not image_folder_id:
-                            await context.bot.send_message(
-                                chat_id=actual_chat_id,
-                                text="⚠️ Video folder not configured"
-                            )
-                        else:
-                            await context.bot.send_message(
-                                chat_id=actual_chat_id,
-                                text="🖼️ Fetching image..."
-                            )
-
-                            image_path, image_file_id = await asyncio.to_thread(
-                                self.gdrive_manager.fetch_next_image_from_folder,
-                                image_folder_id
-                            )
-
-                            if not image_path:
-                                await context.bot.send_message(
-                                    chat_id=actual_chat_id,
-                                    text="❌ No images"
-                                )
-                            else:
-                                subtitle_style = video_settings.get('subtitle_style') or ''
-                                await context.bot.send_message(
-                                    chat_id=actual_chat_id,
-                                    text="📤 Uploading to queue..."
-                                )
-
-                                success, job_id = await self.video_queue_manager.create_video_job(
-                                    audio_path=audio_path,
-                                    image_path=image_path,
-                                    counter=counter,
-                                    chat_id=actual_chat_id,
-                                    subtitle_style=subtitle_style
-                                )
-
-                                if success:
-                                    if image_file_id:
-                                        await asyncio.to_thread(
-                                            self.gdrive_manager.delete_image_from_gdrive,
-                                            image_file_id
-                                        )
-
-                                    pending = self.video_queue_manager.get_pending_jobs_count()
-                                    message_text = f"✅ **Video Queued!** (Job #{job_id})\n\n📋 Queue: {pending}\n⏱️ Est: 40-60 min\n📢 Notification when ready!"
-                                    await context.bot.send_message(
-                                        chat_id=actual_chat_id,
-                                        text=message_text
-                                    )
-                                    print(f"✅ Job created: {job_id}")
-                                else:
-                                    await context.bot.send_message(
-                                        chat_id=actual_chat_id,
-                                        text="❌ Queue failed"
-                                    )
-
-                except Exception as e:
-                    print(f"❌ Queue error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    await context.bot.send_message(
-                        chat_id=actual_chat_id,
-                        text=f"❌ Error: {str(e)[:200]}"
-                    )
-
-            # No completion message here - let user decide about video first
+            # Video job creation now happens per-file inside the loop above
+            # No need for post-loop video job creation anymore
 
         except Exception as e:
             error_msg = f"❌ Queue processing error: {str(e)}"
