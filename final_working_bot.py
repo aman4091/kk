@@ -3817,26 +3817,51 @@ class WorkingF5Bot:
                     await query.edit_message_text("❌ No image folder configured! Use /setfolder to select a folder.")
                     return
 
-                # Create video job in queue
-                job_id = f"audio_{chat_id}_{timestamp}"
+                # Initialize GDrive image manager if needed
+                if not hasattr(self, 'gdrive_image_mgr') or not self.gdrive_image_mgr:
+                    from gdrive_image_manager import GDriveImageManager
+                    from gdrive_manager import GDriveManager
+                    gdrive_mgr = GDriveManager()
+                    self.gdrive_image_mgr = GDriveImageManager(gdrive_mgr)
+                    print("✅ GDriveImageManager loaded")
 
-                job_data = {
-                    'job_id': job_id,
-                    'chat_id': str(chat_id),
-                    'audio_path': temp_audio_path,
-                    'image_folder_id': folder_id,
-                    'subtitle_style': video_settings.get('subtitle_style'),
-                    'status': 'pending',
-                    'created_at': 'NOW()'
-                }
+                # Get random image from folder
+                await query.edit_message_text(f"📸 Selecting random image...", parse_mode="Markdown")
+                image_path = await self.gdrive_image_mgr.get_random_image(folder_id)
 
-                success = self.supabase.add_video_job(job_data)
+                if not image_path:
+                    await query.edit_message_text(f"❌ No images found in selected folder!")
+                    return
+
+                print(f"✅ Selected image: {image_path}")
+
+                # Initialize VideoQueueManager if needed
+                if not hasattr(self, 'video_queue_manager') or not self.video_queue_manager:
+                    from video_queue_manager import VideoQueueManager
+                    from gdrive_manager import GDriveManager
+                    gdrive_mgr = GDriveManager()
+                    self.video_queue_manager = VideoQueueManager(self.supabase, gdrive_mgr)
+                    print("✅ VideoQueueManager loaded")
+
+                # Create video job using queue manager
+                await query.edit_message_text(f"📤 Uploading to queue...", parse_mode="Markdown")
+
+                counter = int(timestamp)  # Use timestamp as counter
+                subtitle_style = video_settings.get('subtitle_style')
+
+                success, job_id = await self.video_queue_manager.create_video_job(
+                    temp_audio_path,
+                    image_path,
+                    counter,
+                    chat_id,
+                    subtitle_style
+                )
 
                 if success:
                     await query.edit_message_text(
                         f"✅ Video job created!\n\n"
                         f"🎬 Job ID: `{job_id}`\n"
-                        f"📁 Image folder: Selected folder\n"
+                        f"📁 Image: Selected from folder\n"
                         f"⏳ Status: Pending\n\n"
                         f"Worker will process this job soon!",
                         parse_mode="Markdown"
