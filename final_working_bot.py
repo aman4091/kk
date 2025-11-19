@@ -3794,7 +3794,10 @@ class WorkingF5Bot:
                 # Download audio
                 file = await context.bot.get_file(file_id)
                 timestamp = int(time.time())
-                temp_audio_path = os.path.join(self.work_dir, f"audio_{timestamp}.mp3")
+                # Use temp directory
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                temp_audio_path = os.path.join(temp_dir, f"audio_{timestamp}.mp3")
                 await file.download_to_drive(temp_audio_path)
                 print(f"✅ Downloaded audio to: {temp_audio_path}")
 
