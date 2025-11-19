@@ -3672,17 +3672,32 @@ class WorkingF5Bot:
         # Send reply only if it's a regular message (not channel post)
         if update.message and update.message.chat.type != "channel":
             # Get audio file info
+            file_size = 0
             if update.message.audio:
                 file_id = update.message.audio.file_id
                 file_name = update.message.audio.file_name or "audio.mp3"
+                file_size = update.message.audio.file_size
             elif update.message.voice:
                 file_id = update.message.voice.file_id
                 file_name = "voice.ogg"
+                file_size = update.message.voice.file_size
             elif update.message.document:
                 file_id = update.message.document.file_id
                 file_name = update.message.document.file_name or "audio"
+                file_size = update.message.document.file_size
             else:
                 await update.message.reply_text("❌ No audio file found!")
+                return
+
+            # Check file size (Telegram Bot API limit: 20MB)
+            MAX_SIZE = 20 * 1024 * 1024  # 20MB in bytes
+            if file_size and file_size > MAX_SIZE:
+                size_mb = file_size / (1024 * 1024)
+                await update.message.reply_text(
+                    f"❌ File too large: {size_mb:.1f} MB\n\n"
+                    f"Maximum size: 20 MB\n\n"
+                    f"💡 Please send a smaller audio file or compress it first."
+                )
                 return
 
             # Store file_id in user_data for callback
