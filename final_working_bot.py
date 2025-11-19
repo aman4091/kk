@@ -3817,54 +3817,65 @@ class WorkingF5Bot:
                     await query.edit_message_text("❌ No image folder configured! Use /setfolder to select a folder.")
                     return
 
-                # Initialize GDrive image manager if needed
-                if not hasattr(self, 'gdrive_image_mgr') or not self.gdrive_image_mgr:
-                    from gdrive_manager import GDriveManager, GDriveImageManager
-                    gdrive_mgr = GDriveManager()
-                    self.gdrive_image_mgr = GDriveImageManager(gdrive_mgr)
-                    print("✅ GDriveImageManager loaded")
+                await query.edit_message_text(f"🖼️ Fetching image from folder...", parse_mode="Markdown")
 
-                # Get random image from folder
-                await query.edit_message_text(f"📸 Selecting random image...", parse_mode="Markdown")
-                image_path = await self.gdrive_image_mgr.get_random_image(folder_id)
-
-                if not image_path:
-                    await query.edit_message_text(f"❌ No images found in selected folder!")
-                    return
-
-                print(f"✅ Selected image: {image_path}")
-
-                # Initialize VideoQueueManager if needed
+                # Lazy load managers (same as Script Mode logic)
                 if not hasattr(self, 'video_queue_manager') or not self.video_queue_manager:
                     from video_queue_manager import VideoQueueManager
-                    from gdrive_manager import GDriveManager
-                    gdrive_mgr = GDriveManager()
+                    from gdrive_manager import GDriveImageManager
+                    gdrive_mgr = GDriveImageManager()
                     self.video_queue_manager = VideoQueueManager(self.supabase, gdrive_mgr)
                     print("✅ VideoQueueManager loaded")
+
+                if not self.gdrive_manager:
+                    from gdrive_manager import GDriveImageManager
+                    self.gdrive_manager = GDriveImageManager()
+                    print("✅ GDriveImageManager loaded")
+
+                # Fetch image from Google Drive folder
+                image_path, image_file_id = await asyncio.to_thread(
+                    self.gdrive_manager.fetch_next_image_from_folder,
+                    folder_id
+                )
+
+                if not image_path:
+                    await query.edit_message_text("❌ No images found in folder!")
+                    return
+
+                print(f"✅ Image fetched: {image_path}")
 
                 # Create video job using queue manager
                 await query.edit_message_text(f"📤 Uploading to queue...", parse_mode="Markdown")
 
                 counter = int(timestamp)  # Use timestamp as counter
-                subtitle_style = video_settings.get('subtitle_style')
+                subtitle_style = video_settings.get('subtitle_style') or ''
 
                 success, job_id = await self.video_queue_manager.create_video_job(
-                    temp_audio_path,
-                    image_path,
-                    counter,
-                    chat_id,
-                    subtitle_style
+                    audio_path=temp_audio_path,
+                    image_path=image_path,
+                    counter=counter,
+                    chat_id=chat_id,
+                    subtitle_style=subtitle_style
                 )
 
                 if success:
+                    # Delete image from GDrive after upload to queue
+                    if image_file_id:
+                        await asyncio.to_thread(
+                            self.gdrive_manager.delete_image_from_gdrive,
+                            image_file_id
+                        )
+
+                    pending = self.video_queue_manager.get_pending_jobs_count()
+
                     await query.edit_message_text(
-                        f"✅ Video job created!\n\n"
-                        f"🎬 Job ID: `{job_id}`\n"
-                        f"📁 Image: Selected from folder\n"
-                        f"⏳ Status: Pending\n\n"
-                        f"Worker will process this job soon!",
+                        f"✅ **Video Queued!** (Job #{job_id})\n\n"
+                        f"📋 Queue: {pending} pending jobs\n"
+                        f"⏱️ Est: 40-60 min\n"
+                        f"📢 You'll be notified when ready!",
                         parse_mode="Markdown"
                     )
+                    print(f"✅ Video job created: {job_id}")
                 else:
                     await query.edit_message_text("❌ Failed to create video job!")
 
