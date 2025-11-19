@@ -3664,17 +3664,193 @@ class WorkingF5Bot:
 
 
     async def test_audio_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Temporary test handler to debug audio processing"""
+        """Audio handler - shows options to set reference or create video"""
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id if update.effective_user else "Channel/Anonymous"
-        print(f"🔥 TEST: Audio message received from user {user_id}, chat {chat_id}")
+        print(f"🎵 Audio message received from user {user_id}, chat {chat_id}")
 
         # Send reply only if it's a regular message (not channel post)
         if update.message and update.message.chat.type != "channel":
-            await update.message.reply_text("🔥 TEST: Audio handler is working!")
+            # Get audio file info
+            if update.message.audio:
+                file_id = update.message.audio.file_id
+                file_name = update.message.audio.file_name or "audio.mp3"
+            elif update.message.voice:
+                file_id = update.message.voice.file_id
+                file_name = "voice.ogg"
+            elif update.message.document:
+                file_id = update.message.document.file_id
+                file_name = update.message.document.file_name or "audio"
+            else:
+                await update.message.reply_text("❌ No audio file found!")
+                return
 
-        # Now call the actual reference handler
-        await self.handle_audio_reference(update, context)
+            # Store file_id in user_data for callback
+            context.user_data['pending_audio_file_id'] = file_id
+            context.user_data['pending_audio_file_name'] = file_name
+
+            # Create buttons
+            keyboard = [
+                [InlineKeyboardButton("🎵 Set Reference Audio", callback_data="audio:set_reference")],
+                [InlineKeyboardButton("🎬 Create Video", callback_data="audio:create_video")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                f"🎵 Audio File Received: `{file_name}`\n\n"
+                f"Choose an option:",
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+    async def on_audio_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle audio file callbacks - set reference or create video"""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data
+        chat_id = query.message.chat.id
+        user_id = query.from_user.id
+
+        # Get stored audio file info
+        file_id = context.user_data.get('pending_audio_file_id')
+        file_name = context.user_data.get('pending_audio_file_name')
+
+        if not file_id:
+            await query.edit_message_text("❌ Audio file expired! Please upload again.")
+            return
+
+        if data == "audio:set_reference":
+            # Set as reference audio
+            await query.edit_message_text(f"🎵 Processing `{file_name}` as reference audio...", parse_mode="Markdown")
+
+            try:
+                # Download the audio file
+                file = await context.bot.get_file(file_id)
+                filename = f"ref_{int(time.time())}.mp3"
+                file_path = os.path.join(REFERENCE_DIR, filename)
+                await file.download_to_drive(file_path)
+                print(f"✅ Downloaded reference to: {file_path}")
+
+                # Extract text with Whisper
+                if not self.whisper_model:
+                    print("🔄 Loading Whisper model...")
+                    self.whisper_model = whisper.load_model("base", device="cpu")
+
+                print("🔄 Transcribing audio...")
+                result = self.whisper_model.transcribe(file_path)
+                new_ref_text = result["text"].strip()
+                print(f"📝 Extracted: {new_ref_text[:50]}...")
+
+                # Update bot's reference
+                old_ref = os.path.basename(self.reference_audio) if self.reference_audio else "None"
+                self.reference_audio = file_path
+                self.reference_text = new_ref_text
+
+                print(f"✅ Reference updated from {old_ref} to {filename}")
+
+                # Reload F5-TTS model to clear cache
+                print("🔄 Reloading F5-TTS model...")
+                try:
+                    if self.f5_model:
+                        del self.f5_model
+
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                    import gc
+                    gc.collect()
+
+                    from f5_tts.api import F5TTS
+                    self.f5_model = F5TTS()
+                    print("✅ F5-TTS model reloaded")
+
+                except Exception as reload_error:
+                    print(f"⚠️ F5-TTS reload error: {reload_error}")
+
+                await query.edit_message_text(
+                    f"✅ Reference audio updated!\n\n"
+                    f"🔄 Previous: `{old_ref}`\n"
+                    f"🎵 New: `{filename}`\n\n"
+                    f"📝 Extracted text: {new_ref_text[:150]}{'...' if len(new_ref_text) > 150 else ''}\n\n"
+                    f"Use /ref_back to revert to default reference.",
+                    parse_mode="Markdown"
+                )
+
+            except Exception as e:
+                error_msg = f"❌ Reference update error: {str(e)}"
+                print(error_msg)
+                await query.edit_message_text(error_msg)
+
+            # Clear stored file info
+            context.user_data.pop('pending_audio_file_id', None)
+            context.user_data.pop('pending_audio_file_name', None)
+
+        elif data == "audio:create_video":
+            # Create video from audio
+            await query.edit_message_text(f"🎬 Creating video from `{file_name}`...", parse_mode="Markdown")
+
+            try:
+                # Download audio
+                file = await context.bot.get_file(file_id)
+                timestamp = int(time.time())
+                temp_audio_path = os.path.join(self.work_dir, f"audio_{timestamp}.mp3")
+                await file.download_to_drive(temp_audio_path)
+                print(f"✅ Downloaded audio to: {temp_audio_path}")
+
+                # Get video settings
+                video_settings = self.supabase.get_video_settings(chat_id)
+
+                if not video_settings.get('video_enabled'):
+                    await query.edit_message_text("❌ Video generation is disabled! Use /videoenable to enable it.")
+                    return
+
+                # Get folder ID
+                folder_id = video_settings.get('gdrive_image_folder_id')
+                if not folder_id:
+                    folder_id = self.supabase.get_current_image_folder()
+
+                if not folder_id:
+                    await query.edit_message_text("❌ No image folder configured! Use /setfolder to select a folder.")
+                    return
+
+                # Create video job in queue
+                job_id = f"audio_{chat_id}_{timestamp}"
+
+                job_data = {
+                    'job_id': job_id,
+                    'chat_id': str(chat_id),
+                    'audio_path': temp_audio_path,
+                    'image_folder_id': folder_id,
+                    'subtitle_style': video_settings.get('subtitle_style'),
+                    'status': 'pending',
+                    'created_at': 'NOW()'
+                }
+
+                success = self.supabase.add_video_job(job_data)
+
+                if success:
+                    await query.edit_message_text(
+                        f"✅ Video job created!\n\n"
+                        f"🎬 Job ID: `{job_id}`\n"
+                        f"📁 Image folder: Selected folder\n"
+                        f"⏳ Status: Pending\n\n"
+                        f"Worker will process this job soon!",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await query.edit_message_text("❌ Failed to create video job!")
+
+            except Exception as e:
+                error_msg = f"❌ Video creation error: {str(e)}"
+                print(error_msg)
+                import traceback
+                print(traceback.format_exc())
+                await query.edit_message_text(error_msg)
+
+            # Clear stored file info
+            context.user_data.pop('pending_audio_file_id', None)
+            context.user_data.pop('pending_audio_file_name', None)
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start command - with buttons for settings and processing"""
@@ -6840,6 +7016,7 @@ async def async_main():
     # - Stop: Settings > Power & Control > Stop Processing
     
     # Callback handlers
+    application.add_handler(CallbackQueryHandler(bot_instance.on_audio_callback, pattern=r"^audio:"))
     application.add_handler(CallbackQueryHandler(bot_instance.on_main_menu, pattern=r"^main:"))
     application.add_handler(CallbackQueryHandler(bot_instance.on_pick, pattern=r"^pick:"))
     application.add_handler(CallbackQueryHandler(bot_instance.on_settings, pattern=r"^settings:"))
