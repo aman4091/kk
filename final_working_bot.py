@@ -3819,8 +3819,7 @@ class WorkingF5Bot:
 
                 # Initialize GDrive image manager if needed
                 if not hasattr(self, 'gdrive_image_mgr') or not self.gdrive_image_mgr:
-                    from gdrive_image_manager import GDriveImageManager
-                    from gdrive_manager import GDriveManager
+                    from gdrive_manager import GDriveManager, GDriveImageManager
                     gdrive_mgr = GDriveManager()
                     self.gdrive_image_mgr = GDriveImageManager(gdrive_mgr)
                     print("✅ GDriveImageManager loaded")
