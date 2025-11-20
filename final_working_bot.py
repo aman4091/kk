@@ -1463,23 +1463,22 @@ class WorkingF5Bot:
             print(f"☁️ Step 4: Uploading to cloud...")
             await context.bot.send_message(chat_id, f"   ☁️ [4/4] Uploading to cloud...")
 
-            from gdrive_manager import GDriveImageManager
-            gdrive = GDriveImageManager()
-
-            # Upload to GDrive
-            gdrive_link = await asyncio.to_thread(
-                gdrive.upload_to_gdrive,
-                final_video,
-                os.getenv('GDRIVE_VIDEO_OUTPUT_FOLDER')
-            )
-            print(f"✅ GDrive upload: {gdrive_link}")
+            # Upload to Google Drive
+            gdrive_id = await self.upload_to_google_drive(final_video)
+            if gdrive_id:
+                gdrive_link = f"https://drive.google.com/file/d/{gdrive_id}/view"
+                print(f"✅ GDrive upload: {gdrive_link}")
+            else:
+                gdrive_link = "Upload failed"
+                print(f"❌ GDrive upload failed")
 
             # Upload to Gofile
-            gofile_link = await asyncio.to_thread(
-                gdrive.upload_to_gofile,
-                final_video
-            )
-            print(f"✅ Gofile upload: {gofile_link}")
+            gofile_link = await self.upload_single_to_gofile(final_video)
+            if gofile_link:
+                print(f"✅ Gofile upload: {gofile_link}")
+            else:
+                gofile_link = "Upload failed"
+                print(f"❌ Gofile upload failed")
 
             # Save to database
             self.supabase.save_video_output(
