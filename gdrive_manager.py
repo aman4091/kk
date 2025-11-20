@@ -94,6 +94,58 @@ class GDriveImageManager:
             print(f"❌ GDrive list error: {e}")
             return []
 
+    def fetch_multiple_images_from_folder(self, folder_id, count=10, download_dir='output/images'):
+        """
+        Fetch multiple images from Google Drive folder for transitions
+
+        Args:
+            folder_id: Google Drive folder ID
+            count: Number of images to fetch
+            download_dir: Local directory to download images
+
+        Returns:
+            tuple: (list of local_image_paths, list of gdrive_file_ids) or ([], []) if failed
+        """
+        try:
+            # List images
+            images = self.list_images_in_folder(folder_id, max_results=count)
+
+            if not images:
+                print("❌ No images available in folder")
+                return [], []
+
+            # Ensure download directory exists
+            os.makedirs(download_dir, exist_ok=True)
+
+            local_paths = []
+            file_ids = []
+
+            for i, image in enumerate(images[:count]):
+                file_id = image['id']
+                file_name = image['name']
+
+                print(f"📥 Fetching image {i+1}/{count}: {file_name}")
+
+                # Download image
+                local_path = os.path.join(download_dir, f"multi_{i+1}_{file_name}")
+                success = self.download_file(file_id, local_path)
+
+                if success:
+                    local_paths.append(local_path)
+                    file_ids.append(file_id)
+                else:
+                    print(f"⚠️ Failed to download image {i+1}, skipping")
+
+            if local_paths:
+                print(f"✅ Downloaded {len(local_paths)} images")
+                return local_paths, file_ids
+            else:
+                return [], []
+
+        except Exception as e:
+            print(f"❌ Multi-image fetch error: {e}")
+            return [], []
+
     def fetch_next_image_from_folder(self, folder_id, download_dir='output/images'):
         """
         Fetch the first image from Google Drive folder

@@ -141,11 +141,14 @@ class VideoGenerator:
             # Add GPU-specific flags for NVENC
             if self.gpu_encoder == 'h264_nvenc':
                 cmd.extend([
-                    '-preset', 'p4',              # NVENC preset (p1=fast, p7=slow/quality)
-                    '-tune', 'hq',                # High quality tuning
+                    '-preset', 'slow',            # NVENC preset (fast/medium/slow)
+                    '-profile:v', 'main',         # H.264 profile
                     '-rc', 'vbr',                 # Variable bitrate
                     '-cq', '23',                  # Quality level (lower=better, 23=good)
                     '-b:v', '5M',                 # Target bitrate
+                    '-maxrate', '5M',             # Max bitrate
+                    '-bufsize', '10M',            # Buffer size
+                    '-g', '250',                  # GOP size (keyframe interval)
                 ])
             else:
                 # CPU encoding options (libx264)
@@ -186,11 +189,15 @@ class VideoGenerator:
             line_count = 0
 
             try:
+                error_lines = []
                 for line in process.stdout:
                     line_count += 1
-                    # Print first 20 lines to see FFmpeg errors
-                    if line_count <= 20:
+                    # Print first 50 lines to see FFmpeg errors
+                    if line_count <= 50:
                         print(f"🔍 Line {line_count}: {line.strip()}", flush=True)
+                    # Capture error lines
+                    if 'error' in line.lower() or 'failed' in line.lower() or 'unsupported' in line.lower():
+                        error_lines.append(line.strip())
                     if line.startswith('out_time_ms='):
                         try:
                             # Extract current time in microseconds
@@ -238,10 +245,211 @@ class VideoGenerator:
                 return True
             else:
                 print(f"❌ FFmpeg failed with return code: {process.returncode}", flush=True)
+                if error_lines:
+                    print(f"🔍 Error details:", flush=True)
+                    for err in error_lines:
+                        print(f"   {err}", flush=True)
                 return False
 
         except Exception as e:
             print(f"❌ Video creation error: {e}")
+            return False
+
+    def create_video_from_multiple_images_audio(self, image_paths, audio_path, output_path, transition_duration=1.0, progress_callback=None):
+        """
+        Create video from multiple images with fade transitions + audio
+
+        Args:
+            image_paths: List of image file paths
+            audio_path: Path to audio file
+            output_path: Path for output video
+            transition_duration: Duration of fade transition in seconds
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            bool: True if successful
+        """
+        try:
+            if not image_paths or len(image_paths) == 0:
+                print("❌ No images provided")
+                return False
+
+            print(f"🎬 Creating multi-image video: {output_path}")
+            print(f"   Images: {len(image_paths)} images")
+            print(f"   Audio: {audio_path}")
+            print(f"   Transition: {transition_duration}s fade")
+
+            # Get audio duration
+            duration = self._get_audio_duration(audio_path)
+            if duration <= 0:
+                print("❌ Invalid audio duration")
+                return False
+
+            print(f"ℹ️  Audio duration: {duration:.1f} seconds")
+
+            # Calculate duration per image
+            num_images = len(image_paths)
+            segment_duration = duration / num_images
+
+            print(f"ℹ️  Each image: {segment_duration:.1f} seconds")
+            print(f"ℹ️  Using {self.gpu_encoder} encoder")
+
+            # Build FFmpeg command with xfade transitions
+            cmd = ['ffmpeg']
+
+            # Add all images as inputs with their durations
+            for img_path in image_paths:
+                cmd.extend([
+                    '-loop', '1',
+                    '-t', str(segment_duration),
+                    '-i', img_path
+                ])
+
+            # Add audio input
+            cmd.extend(['-i', audio_path])
+
+            # Build xfade filter chain for smooth transitions
+            # Example for 3 images: [0:v][1:v]xfade=transition=fade:duration=1:offset=29[v0];[v0][2:v]xfade=transition=fade:duration=1:offset=59
+            filter_parts = []
+
+            for i in range(num_images - 1):
+                offset = (i + 1) * segment_duration - transition_duration
+
+                if i == 0:
+                    # First transition: [0:v][1:v]xfade=...
+                    filter_parts.append(f"[0:v][1:v]xfade=transition=fade:duration={transition_duration}:offset={offset}")
+                else:
+                    # Subsequent transitions: [v{i-1}][{i+1}:v]xfade=...
+                    filter_parts.append(f"[v{i-1}][{i+1}:v]xfade=transition=fade:duration={transition_duration}:offset={offset}")
+
+                # Add output label (except for last transition)
+                if i < num_images - 2:
+                    filter_parts.append(f"[v{i}];")
+                else:
+                    filter_parts.append(f"[v{i}]")
+
+            # Join filter chain
+            filter_complex = "".join(filter_parts)
+
+            # Add filter complex to command
+            cmd.extend(['-filter_complex', filter_complex])
+
+            # Add video codec
+            cmd.extend(['-c:v', self.gpu_encoder])
+
+            # Add GPU-specific flags for NVENC
+            if self.gpu_encoder == 'h264_nvenc':
+                cmd.extend([
+                    '-preset', 'slow',
+                    '-profile:v', 'main',
+                    '-rc', 'vbr',
+                    '-cq', '23',
+                    '-b:v', '5M',
+                    '-maxrate', '5M',
+                    '-bufsize', '10M',
+                    '-g', '250',
+                ])
+            else:
+                # CPU encoding options (libx264)
+                cmd.extend([
+                    '-tune', 'stillimage',
+                ])
+
+            # Add audio and common options
+            # Map the final video output from filter and audio from last input
+            final_video_label = f"[v{num_images-2}]" if num_images > 1 else "[0:v]"
+            cmd.extend([
+                '-map', final_video_label,       # Map final video from xfade filter
+                '-map', f'{num_images}:a',       # Map audio from last input
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-pix_fmt', 'yuv420p',
+                '-shortest',
+                '-progress', 'pipe:1',
+                '-y',
+                output_path
+            ])
+
+            print(f"🔍 DEBUG: Starting FFmpeg with {num_images} images...")
+            print(f"🔍 DEBUG: Encoder: {self.gpu_encoder}")
+
+            # Run FFmpeg
+            process = subprocess.Popen(cmd,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT,
+                                     universal_newlines=True,
+                                     bufsize=1)
+
+            print(f"🔍 DEBUG: Process started, PID: {process.pid}")
+            print(f"⏱️ Encoding started... (This may take 10-20 minutes for multi-image video)")
+
+            # Monitor progress
+            import time
+            last_reported = 0
+            last_progress_time = time.time()
+            line_count = 0
+            error_lines = []
+
+            try:
+                for line in process.stdout:
+                    line_count += 1
+                    if line_count <= 50:
+                        print(f"🔍 Line {line_count}: {line.strip()}", flush=True)
+                    if 'error' in line.lower() or 'failed' in line.lower() or 'unsupported' in line.lower():
+                        error_lines.append(line.strip())
+
+                    if line.startswith('out_time_ms='):
+                        try:
+                            time_str = line.split('=')[1].strip()
+                            if time_str == 'N/A':
+                                continue
+                            time_ms = int(time_str)
+                            current_time = time_ms / 1000000
+                        except (ValueError, IndexError):
+                            continue
+
+                        if duration > 0:
+                            percentage = min(100, (current_time / duration) * 100)
+                            if percentage - last_reported >= 5.0 or percentage >= 99.9:
+                                print(f"\r📹 Multi-image video progress: {percentage:.1f}%", end='', flush=True)
+                                print(f" (time: {current_time:.1f}/{duration:.1f}s)", flush=True)
+
+                                if progress_callback:
+                                    progress_callback(percentage, f"Creating multi-image video: {percentage:.1f}%")
+
+                                last_reported = percentage
+                                last_progress_time = time.time()
+
+                    # Check if process is still alive (every 60 seconds)
+                    if time.time() - last_progress_time > 60:
+                        if process.poll() is not None:
+                            print(f"❌ FFmpeg process died! Return code: {process.returncode}")
+                            break
+                        last_progress_time = time.time()
+
+            except Exception as e:
+                print(f"\n❌ Error during progress monitoring: {e}")
+                import traceback
+                traceback.print_exc()
+
+            process.wait()
+            print()
+
+            if process.returncode == 0:
+                print(f"✅ Multi-image video created: {output_path}", flush=True)
+                return True
+            else:
+                print(f"❌ FFmpeg failed with return code: {process.returncode}", flush=True)
+                if error_lines:
+                    print(f"🔍 Error details:", flush=True)
+                    for err in error_lines:
+                        print(f"   {err}", flush=True)
+                return False
+
+        except Exception as e:
+            print(f"❌ Multi-image video creation error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def generate_subtitles_whisper(self, audio_path, output_srt_path=None):
@@ -698,11 +906,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Add GPU-specific flags for NVENC
             if self.gpu_encoder == 'h264_nvenc':
                 cmd.extend([
-                    '-preset', 'p4',            # NVENC preset (balanced speed/quality)
-                    '-tune', 'hq',              # High quality tuning
+                    '-preset', 'slow',          # NVENC preset (fast/medium/slow)
+                    '-profile:v', 'main',       # H.264 profile
                     '-rc', 'vbr',               # Variable bitrate
                     '-cq', '23',                # Quality level
                     '-b:v', '5M',               # Target bitrate
+                    '-maxrate', '5M',           # Max bitrate
+                    '-bufsize', '10M',          # Buffer size
+                    '-g', '250',                # GOP size (keyframe interval)
                 ])
 
             # Common options
@@ -882,6 +1093,105 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         except Exception as e:
             print(f"\n❌ Video pipeline error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def create_video_with_subtitles_multi_image(self, image_paths, audio_path, output_path, ass_style=None, progress_callback=None, event_loop=None):
+        """
+        Complete pipeline: Multiple Images + Audio → Video with transitions and subtitles
+
+        Args:
+            image_paths: List of image paths
+            audio_path: Path to audio
+            output_path: Final output video path
+            ass_style: Optional custom ASS style
+            progress_callback: Optional async function(message) for progress updates
+            event_loop: Optional event loop for running async callbacks
+
+        Returns:
+            str: Path to final video or None if failed
+        """
+
+        def send_progress(msg):
+            """Helper to send progress updates safely"""
+            if progress_callback and event_loop:
+                try:
+                    asyncio.run_coroutine_threadsafe(progress_callback(msg), event_loop)
+                except Exception as e:
+                    print(f"⚠️ Progress callback error: {e}")
+
+        try:
+            print("\n" + "="*60)
+            print("🎬 MULTI-IMAGE VIDEO GENERATION PIPELINE")
+            print("="*60)
+
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            # Temp file paths
+            base_name = Path(audio_path).stem
+            temp_video = f"output/{base_name}_temp_multi.mp4"
+            srt_path = f"output/{base_name}.srt"
+            ass_path = f"output/{base_name}.ass"
+
+            # Step 1: Create multi-image video (images + audio)
+            print(f"\n📹 Step 1/4: Creating video from {len(image_paths)} images + audio...")
+            send_progress(f"📹 [0-25%] Creating video from {len(image_paths)} images with transitions...")
+
+            # Progress callback for video creation (0-25% range)
+            def video_progress(pct, msg):
+                scaled_pct = pct * 0.25  # Scale to 0-25%
+                send_progress(f"📹 [{scaled_pct:.1f}%] {msg}")
+
+            if not self.create_video_from_multiple_images_audio(image_paths, audio_path, temp_video, progress_callback=video_progress):
+                return None
+
+            # Step 2: Generate subtitles with Whisper
+            print("\n📝 Step 2/4: Generating subtitles with Whisper...")
+            send_progress("📝 [50%] Generating subtitles with Whisper AI...")
+
+            if not self.generate_subtitles_whisper(audio_path, srt_path):
+                return None
+
+            # Step 3: Convert SRT → ASS with styling
+            print("\n🎨 Step 3/4: Converting SRT → ASS with styling...")
+            send_progress("🎨 [75%] Converting subtitles to ASS format...")
+
+            if not self.convert_srt_to_ass(srt_path, ass_style, ass_path):
+                return None
+
+            # Step 4: Burn subtitles into video
+            print("\n🔥 Step 4/4: Burning subtitles into video...")
+            send_progress("🔥 [75-100%] Burning subtitles into video...")
+
+            # Progress callback for subtitle burning (75-100% range)
+            def burn_progress(pct, msg):
+                scaled_pct = 75 + (pct * 0.25)  # Scale to 75-100%
+                send_progress(f"🔥 [{scaled_pct:.1f}%] {msg}")
+
+            if not self.burn_subtitles(temp_video, ass_path, output_path, progress_callback=burn_progress):
+                return None
+
+            # Cleanup temp files
+            try:
+                os.remove(temp_video)
+                os.remove(srt_path)
+                os.remove(ass_path)
+                print("\n🧹 Cleaned up temporary files")
+            except:
+                pass
+
+            send_progress("✅ [100%] Multi-image video generation complete!")
+
+            print("\n" + "="*60)
+            print(f"✅ MULTI-IMAGE VIDEO PIPELINE COMPLETE: {output_path}")
+            print("="*60 + "\n")
+
+            return output_path
+
+        except Exception as e:
+            print(f"\n❌ Multi-image video pipeline error: {e}")
             import traceback
             traceback.print_exc()
             return None

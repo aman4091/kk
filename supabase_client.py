@@ -1166,6 +1166,21 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             print(f"❌ Error getting current folder: {e}")
             return os.getenv('GDRIVE_IMAGE_FOLDER_DEFAULT')
 
+    def is_jesus_folder_active(self):
+        """
+        Check if Jesus folder is currently active (for multi-image support)
+
+        Returns:
+            bool: True if Jesus folder is active
+        """
+        try:
+            current_folder = self.get_current_image_folder()
+            jesus_folder = os.getenv('GDRIVE_IMAGE_FOLDER_JESUS')
+            return current_folder == jesus_folder
+        except Exception as e:
+            print(f"❌ Error checking Jesus folder: {e}")
+            return False
+
     def set_current_image_folder(self, folder_number: int):
         """
         Set current active image folder (global setting)

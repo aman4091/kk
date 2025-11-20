@@ -42,9 +42,15 @@ class LocalVideoWorker:
 
     def __init__(self):
         """Initialize worker"""
-        # Worker identification
-        self.worker_id = f"{platform.node()}_RTX4060"
+        # Worker identification (from env or default)
+        default_worker_id = f"{platform.node()}_RTX4060"
+        self.worker_id = os.getenv("WORKER_ID", default_worker_id)
         self.hostname = platform.node()
+
+        # Detect GPU model (or CPU mode)
+        self.gpu_model = os.getenv("GPU_MODEL", "RTX 4060")
+        if os.getenv("FORCE_CPU_ENCODER", "").lower() in ("true", "1", "yes"):
+            self.gpu_model += " (CPU mode)"
 
         # Initialize clients
         print("🔄 Initializing worker components...", flush=True)
@@ -59,8 +65,11 @@ class LocalVideoWorker:
         # Telegram bot token for notifications
         self.bot_token = os.getenv("BOT_TOKEN")
 
-        # Working directory for temp files
-        self.work_dir = "E:/video_worker_temp"
+        # Working directory for temp files (platform-specific)
+        if sys.platform == 'win32':
+            self.work_dir = "E:/video_worker_temp"
+        else:
+            self.work_dir = os.path.expanduser("~/video_worker_temp")
         os.makedirs(self.work_dir, exist_ok=True)
 
         # Configuration
@@ -79,7 +88,7 @@ class LocalVideoWorker:
             self.supabase.client.table('video_workers').upsert({
                 'worker_id': self.worker_id,
                 'hostname': self.hostname,
-                'gpu_model': 'RTX 4060',
+                'gpu_model': self.gpu_model,
                 'status': 'online',
                 'last_heartbeat': datetime.now().isoformat()
             }).execute()
@@ -102,25 +111,50 @@ class LocalVideoWorker:
 
     def get_pending_job(self):
         """
-        Get next pending job from queue (highest priority first)
+        Get next pending job from queue and atomically claim it
+
+        This prevents race conditions when multiple workers are running.
+        Uses atomic update to claim job before processing.
 
         Returns:
             Job dict or None
         """
         print("🔍 Checking for pending jobs...", flush=True)
         try:
-            # Simplified query - just get pending jobs without complex ordering
+            # Get pending jobs
             result = self.supabase.client.table('video_jobs')\
                 .select('*')\
                 .eq('status', 'pending')\
                 .limit(1)\
                 .execute()
 
-            print(f"✅ Query completed, found {len(result.data) if result.data else 0} job(s)", flush=True)
+            if not result.data:
+                print(f"⏳ No pending jobs found", flush=True)
+                return None
 
-            if result.data:
-                return result.data[0]
-            return None
+            job = result.data[0]
+            job_id = job['job_id']
+
+            print(f"📋 Found pending job: {job_id}, attempting to claim...", flush=True)
+
+            # Atomically claim the job (only succeeds if still pending)
+            # This prevents race condition if another worker grabs same job
+            claim_result = self.supabase.client.table('video_jobs')\
+                .update({
+                    'status': 'processing',
+                    'processing_started_at': datetime.now().isoformat(),
+                    'worker_id': self.worker_id
+                })\
+                .eq('job_id', job_id)\
+                .eq('status', 'pending')\
+                .execute()
+
+            if not claim_result.data:
+                print(f"⚠️  Failed to claim job {job_id} (another worker grabbed it)", flush=True)
+                return None
+
+            print(f"✅ Successfully claimed job: {job_id}", flush=True)
+            return job
 
         except Exception as e:
             print(f"❌ Error fetching job: {e}", flush=True)
@@ -210,10 +244,13 @@ class LocalVideoWorker:
         try:
             import telegram
             bot = telegram.Bot(token=self.bot_token)
-            await bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+            # Use plain text (no markdown) to avoid parsing errors
+            await bot.send_message(chat_id=chat_id, text=message)
 
         except Exception as e:
             print(f"⚠️  Telegram notification failed: {e}")
+            import traceback
+            traceback.print_exc()
 
     def download_from_gdrive(self, file_id: str, output_path: str) -> bool:
         """Download file from Google Drive"""
@@ -293,10 +330,8 @@ class LocalVideoWorker:
             print(f"   Created: {job['created_at']}", flush=True)
             print(f"{'='*60}\n", flush=True)
 
-            # Mark as processing
-            print(f"📝 Marking job as processing...", flush=True)
-            self.mark_job_processing(job_id)
-            print(f"✅ Job marked as processing", flush=True)
+            # Job already marked as processing in get_pending_job() atomic claim
+            # No need to mark again
 
             # 1. Download audio from Google Drive
             print(f"📥 Downloading audio from Google Drive...", flush=True)
@@ -307,18 +342,42 @@ class LocalVideoWorker:
 
             print(f"✅ Audio downloaded: {audio_path}", flush=True)
 
-            # 2. Download image from Google Drive
-            print(f"📥 Downloading image from Google Drive...", flush=True)
-            image_path = os.path.join(self.work_dir, f"{job_id}_image.jpg")
+            # 2. Download image(s) from Google Drive
+            # Check if Jesus folder is active (multi-image support)
+            use_multi_images = self.supabase_client.is_jesus_folder_active()
 
-            if not self.download_from_gdrive(job['image_gdrive_id'], image_path):
-                raise Exception("Failed to download image")
+            if use_multi_images:
+                # Jesus folder - download 10 images for transitions
+                print(f"📥 Downloading 10 images from Jesus folder for transitions...", flush=True)
+                folder_id = job.get('image_folder_id') or self.supabase_client.get_current_image_folder()
 
-            print(f"✅ Image downloaded: {image_path}", flush=True)
+                image_paths, image_ids = self.gdrive.fetch_multiple_images_from_folder(
+                    folder_id,
+                    count=10,
+                    download_dir=self.work_dir
+                )
+
+                if not image_paths or len(image_paths) == 0:
+                    raise Exception("Failed to download images from Jesus folder")
+
+                print(f"✅ Downloaded {len(image_paths)} images for multi-image video", flush=True)
+            else:
+                # Nature/Shorts folder - single image (current behaviour)
+                print(f"📥 Downloading image from Google Drive...", flush=True)
+                image_path = os.path.join(self.work_dir, f"{job_id}_image.jpg")
+
+                if not self.download_from_gdrive(job['image_gdrive_id'], image_path):
+                    raise Exception("Failed to download image")
+
+                print(f"✅ Image downloaded: {image_path}", flush=True)
+                image_paths = [image_path]  # Convert to list for consistency
 
             # 3. Generate video with subtitles
             print(f"🎬 Generating video with FFmpeg...", flush=True)
-            print(f"⏰ This will take 40-60 minutes for full video...", flush=True)
+            if use_multi_images:
+                print(f"⏰ This will take 50-70 minutes for multi-image video (10 images with transitions)...", flush=True)
+            else:
+                print(f"⏰ This will take 40-60 minutes for full video...", flush=True)
             print(f"💡 Progress updates will appear every ~30 seconds", flush=True)
             video_path = os.path.join(self.work_dir, f"{job_id}_final_video.mp4")
 
@@ -332,15 +391,28 @@ class LocalVideoWorker:
             loop = asyncio.get_event_loop()
 
             # Create video (runs in thread to not block)
-            final_video = await asyncio.to_thread(
-                self.video_gen.create_video_with_subtitles,
-                image_path,
-                audio_path,
-                video_path,
-                subtitle_style,
-                video_progress,
-                loop
-            )
+            if use_multi_images and len(image_paths) > 1:
+                # Multi-image video with transitions
+                final_video = await asyncio.to_thread(
+                    self.video_gen.create_video_with_subtitles_multi_image,
+                    image_paths,
+                    audio_path,
+                    video_path,
+                    subtitle_style,
+                    video_progress,
+                    loop
+                )
+            else:
+                # Single image video (original method)
+                final_video = await asyncio.to_thread(
+                    self.video_gen.create_video_with_subtitles,
+                    image_paths[0],  # Use first image if list
+                    audio_path,
+                    video_path,
+                    subtitle_style,
+                    video_progress,
+                    loop
+                )
 
             if not final_video or not os.path.exists(final_video):
                 raise Exception("Video generation failed")
@@ -374,17 +446,16 @@ class LocalVideoWorker:
             # 6. Mark job as completed
             self.mark_job_completed(job_id, gdrive_file_id or '', gofile_link or '')
 
-            # 7. Send Telegram notification
-            message = (
-                f"✅ **Video Ready!** (Job #{job_id})\n\n"
-                f"📹 Size: {video_size_mb} MB\n"
-            )
-            if gofile_link:
-                message += f"📥 [Download from Gofile]({gofile_link})\n"
-            if gdrive_link:
-                message += f"📁 [View on Google Drive]({gdrive_link})\n"
+            # 7. Send Telegram notification (plain text, no markdown)
+            message = f"✅ Video Ready! Job #{job_id}\n\n"
+            message += f"📹 Size: {video_size_mb} MB\n\n"
 
-            message += f"\n🤖 Processed by: {self.worker_id}"
+            if gofile_link:
+                message += f"📥 Gofile:\n{gofile_link}\n\n"
+            if gdrive_link:
+                message += f"📁 GDrive:\n{gdrive_link}\n\n"
+
+            message += f"🤖 Worker: {self.worker_id}"
 
             await self.send_telegram_notification(chat_id, message)
 
@@ -454,11 +525,12 @@ class LocalVideoWorker:
     async def run(self):
         """Main worker loop"""
         print(f"\n{'='*60}", flush=True)
-        print(f"🚀 Starting Local Video Worker", flush=True)
+        print(f"🚀 Starting Video Worker", flush=True)
         print(f"   Worker ID: {self.worker_id}", flush=True)
         print(f"   Hostname: {self.hostname}", flush=True)
-        print(f"   GPU: RTX 4060", flush=True)
+        print(f"   GPU/CPU: {self.gpu_model}", flush=True)
         print(f"   Poll interval: {self.poll_interval}s", flush=True)
+        print(f"   Platform: {sys.platform}", flush=True)
         print(f"{'='*60}\n", flush=True)
 
         # Register worker
