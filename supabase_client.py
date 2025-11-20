@@ -389,16 +389,22 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             return 0
 
     def increment_counter(self) -> int:
-        """Increment global counter and return new value"""
+        """Increment global counter and return new value (atomic operation)"""
         if not self.is_connected():
             return 0
 
         try:
-            # Get current value
+            # Use PostgreSQL RPC for atomic increment
+            # This ensures no race conditions between workers
+            result = self.client.rpc('increment_global_counter').execute()
+
+            if result.data:
+                return result.data
+
+            # Fallback: If RPC not available, use non-atomic method
             current = self.get_counter()
             new_value = current + 1
 
-            # Update
             self.client.table('global_counter')\
                 .update({'counter': new_value, 'updated_at': datetime.now().isoformat()})\
                 .eq('id', 1)\
@@ -407,7 +413,9 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             return new_value
         except Exception as e:
             print(f"❌ Error incrementing counter: {e}")
-            return 0
+            # Emergency fallback: use timestamp-based unique ID
+            import time
+            return int(time.time() * 1000) % 1000000
 
     # =============================================================================
     # CHANNEL-SPECIFIC COUNTER (for channel-wise audio numbering)

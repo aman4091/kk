@@ -1317,8 +1317,8 @@ class WorkingF5Bot:
             # Configure Gemini
             genai.configure(api_key=api_key)
 
-            # Use latest Gemini Flash model
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            # Use Gemini 2.5 Flash (latest stable)
+            model = genai.GenerativeModel('gemini-2.5-flash')
 
             # Split transcript into chunks
             chunk_size = int(os.getenv("GEMINI_CHUNK_SIZE", 7000))
@@ -1380,6 +1380,127 @@ class WorkingF5Bot:
             return await self.process_with_gemini(transcript, chat_id, context, custom_prompt)
         else:  # deepseek
             return await self.process_with_deepseek(transcript, chat_id, context, custom_prompt)
+
+    async def create_video_directly(self, audio_path, image_path, counter, chat_id, subtitle_style, context):
+        """
+        Create video directly without queue
+        Returns: (video_path, gdrive_link, gofile_link)
+        """
+        print(f"\n{'='*60}")
+        print(f"🎬 DIRECT VIDEO CREATION: {counter}")
+        print(f"{'='*60}")
+
+        try:
+            # Initialize VideoGenerator if needed
+            if self.video_generator is None:
+                print("🔧 Initializing VideoGenerator...")
+                self.video_generator = VideoGenerator()
+
+            # Setup paths
+            work_dir = "output/videos"
+            os.makedirs(work_dir, exist_ok=True)
+
+            temp_video = os.path.join(work_dir, f"{counter}_temp.mp4")
+            final_video = os.path.join(work_dir, f"{counter}.mp4")
+            ass_file = os.path.join(work_dir, f"{counter}.ass")
+
+            # Step 1: Create base video (image + audio)
+            print(f"📹 Step 1: Creating base video...")
+            await context.bot.send_message(chat_id, f"   📹 [1/4] Creating base video...")
+
+            await asyncio.to_thread(
+                self.video_generator.create_video_from_image_audio,
+                image_path, audio_path, temp_video
+            )
+            print(f"✅ Base video created: {temp_video}")
+
+            # Step 2: Generate subtitles if style provided
+            if subtitle_style and subtitle_style.strip():
+                print(f"📝 Step 2: Generating subtitles...")
+                await context.bot.send_message(chat_id, f"   📝 [2/4] Generating subtitles...")
+
+                # Transcribe with Whisper
+                from gdrive_manager import GDriveImageManager
+                gdrive = GDriveImageManager()
+
+                srt_content = await asyncio.to_thread(
+                    gdrive.transcribe_audio_with_whisper,
+                    audio_path
+                )
+
+                # Convert SRT to ASS with style
+                ass_content = await asyncio.to_thread(
+                    gdrive.convert_srt_to_ass,
+                    srt_content, subtitle_style
+                )
+
+                # Save ASS file
+                with open(ass_file, 'w', encoding='utf-8') as f:
+                    f.write(ass_content)
+                print(f"✅ Subtitles created: {ass_file}")
+
+                # Step 3: Burn subtitles
+                print(f"🔥 Step 3: Burning subtitles...")
+                await context.bot.send_message(chat_id, f"   🔥 [3/4] Burning subtitles...")
+
+                await asyncio.to_thread(
+                    self.video_generator.burn_subtitles,
+                    temp_video, ass_file, final_video
+                )
+                print(f"✅ Final video created: {final_video}")
+
+                # Cleanup temp video
+                if os.path.exists(temp_video):
+                    os.remove(temp_video)
+            else:
+                # No subtitles, rename temp to final
+                os.rename(temp_video, final_video)
+                print(f"✅ Video ready (no subtitles): {final_video}")
+
+            # Step 4: Upload to GDrive and Gofile
+            print(f"☁️ Step 4: Uploading to cloud...")
+            await context.bot.send_message(chat_id, f"   ☁️ [4/4] Uploading to cloud...")
+
+            from gdrive_manager import GDriveImageManager
+            gdrive = GDriveImageManager()
+
+            # Upload to GDrive
+            gdrive_link = await asyncio.to_thread(
+                gdrive.upload_to_gdrive,
+                final_video,
+                os.getenv('GDRIVE_VIDEO_OUTPUT_FOLDER')
+            )
+            print(f"✅ GDrive upload: {gdrive_link}")
+
+            # Upload to Gofile
+            gofile_link = await asyncio.to_thread(
+                gdrive.upload_to_gofile,
+                final_video
+            )
+            print(f"✅ Gofile upload: {gofile_link}")
+
+            # Save to database
+            self.supabase.save_video_output(
+                counter=counter,
+                chat_id=str(chat_id),
+                audio_path=audio_path,
+                video_path=final_video,
+                gdrive_link=gdrive_link,
+                gofile_link=gofile_link,
+                subtitle_style=subtitle_style or ''
+            )
+
+            print(f"\n{'='*60}")
+            print(f"✅ VIDEO CREATION COMPLETE: {counter}.mp4")
+            print(f"{'='*60}\n")
+
+            return final_video, gdrive_link, gofile_link
+
+        except Exception as e:
+            print(f"❌ Direct video creation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     async def process_with_openrouter(self, transcript, chat_id, context, custom_prompt=None):
         """Process transcript through OpenRouter API in chunks"""
@@ -3091,17 +3212,10 @@ class WorkingF5Bot:
 
             if video_settings and video_settings.get('video_enabled', False):
                 try:
-                    print(f"✅ Video ENABLED for chat {chat_id} - Creating queue job")
-                    await send_msg("📋 Queuing video for processing on local PC...")
+                    print(f"✅ Video ENABLED for chat {chat_id} - Creating video directly")
+                    await send_msg("🎬 Creating video...")
 
-                    # Lazy load queue manager
-                    if not hasattr(self, 'video_queue_manager') or not self.video_queue_manager:
-                        from video_queue_manager import VideoQueueManager
-                        from gdrive_manager import GDriveImageManager
-                        gdrive_mgr = GDriveImageManager()
-                        self.video_queue_manager = VideoQueueManager(self.supabase, gdrive_mgr)
-                        print("✅ VideoQueueManager loaded")
-
+                    # Lazy load gdrive manager
                     if not hasattr(self, 'gdrive_manager') or not self.gdrive_manager:
                         from gdrive_manager import GDriveImageManager
                         self.gdrive_manager = GDriveImageManager()
@@ -3119,34 +3233,38 @@ class WorkingF5Bot:
 
                         if image_path:
                             subtitle_style = video_settings.get('subtitle_style') or ''
-                            await send_msg("📤 Uploading to queue...")
+                            await send_msg("📹 Generating video...")
 
-                            success, job_id = await self.video_queue_manager.create_video_job(
-                                audio_path=raw_output,
-                                image_path=image_path,
-                                counter=counter,
-                                chat_id=chat_id,
-                                subtitle_style=subtitle_style
-                            )
+                            # DIRECT VIDEO CREATION (NO QUEUE)
+                            try:
+                                video_path, gdrive_link, gofile_link = await self.create_video_directly(
+                                    audio_path=raw_output,
+                                    image_path=image_path,
+                                    counter=counter,
+                                    chat_id=chat_id,
+                                    subtitle_style=subtitle_style,
+                                    context=context
+                                )
 
-                            if success:
+                                # Delete image from GDrive after use
                                 if image_file_id:
                                     await asyncio.to_thread(
                                         self.gdrive_manager.delete_image_from_gdrive,
                                         image_file_id
                                     )
 
-                                pending = self.video_queue_manager.get_pending_jobs_count()
-                                message_text = f"✅ **Video Queued!** (Job #{job_id})\n\n📋 Queue: {pending}\n⏱️ Est: 40-60 min\n📢 Notification when ready!"
+                                message_text = f"✅ **Video Ready!** ({counter}.mp4)\n\n🔗 **GDrive:** {gdrive_link}\n🔗 **Gofile:** {gofile_link}"
                                 await send_msg(message_text)
-                                print(f"✅ Job created: {job_id}")
-                            else:
-                                await send_msg("❌ Queue failed")
+                                print(f"✅ Video created: {counter}.mp4")
+
+                            except Exception as video_err:
+                                await send_msg(f"❌ Video creation failed: {str(video_err)[:100]}")
+                                raise
                         else:
                             await send_msg("❌ No images")
 
                 except Exception as e:
-                    print(f"❌ Queue error: {e}")
+                    print(f"❌ Video creation error: {e}")
                     import traceback
                     traceback.print_exc()
                     await send_msg(f"❌ Error: {str(e)[:200]}")
@@ -4018,40 +4136,42 @@ class WorkingF5Bot:
 
                 print(f"✅ Image fetched: {image_path}")
 
-                # Create video job using queue manager
-                await query.edit_message_text(f"📤 Uploading to queue...", parse_mode="Markdown")
+                # DIRECT VIDEO CREATION (NO QUEUE)
+                await query.edit_message_text(f"🎬 Creating video...", parse_mode="Markdown")
 
-                counter = int(timestamp)  # Use timestamp as counter
+                counter = self.supabase.increment_counter()  # Use global counter
                 subtitle_style = video_settings.get('subtitle_style') or ''
 
-                success, job_id = await self.video_queue_manager.create_video_job(
-                    audio_path=temp_audio_path,
-                    image_path=image_path,
-                    counter=counter,
-                    chat_id=chat_id,
-                    subtitle_style=subtitle_style
-                )
+                try:
+                    # Create video directly
+                    video_path, gdrive_link, gofile_link = await self.create_video_directly(
+                        audio_path=temp_audio_path,
+                        image_path=image_path,
+                        counter=counter,
+                        chat_id=chat_id,
+                        subtitle_style=subtitle_style,
+                        context=context
+                    )
 
-                if success:
-                    # Delete image from GDrive after upload to queue
+                    # Delete image from GDrive after use
                     if image_file_id:
                         await asyncio.to_thread(
                             self.gdrive_manager.delete_image_from_gdrive,
                             image_file_id
                         )
 
-                    pending = self.video_queue_manager.get_pending_jobs_count()
-
+                    # Send success message with links
                     await query.edit_message_text(
-                        f"✅ **Video Queued!** (Job #{job_id})\n\n"
-                        f"📋 Queue: {pending} pending jobs\n"
-                        f"⏱️ Est: 40-60 min\n"
-                        f"📢 You'll be notified when ready!",
+                        f"✅ **Video Ready!** ({counter}.mp4)\n\n"
+                        f"🔗 **GDrive:** {gdrive_link}\n"
+                        f"🔗 **Gofile:** {gofile_link}",
                         parse_mode="Markdown"
                     )
-                    print(f"✅ Video job created: {job_id}")
-                else:
-                    await query.edit_message_text("❌ Failed to create video job!")
+                    print(f"✅ Video created: {counter}.mp4")
+
+                except Exception as video_err:
+                    await query.edit_message_text(f"❌ Video creation failed: {str(video_err)[:100]}")
+                    raise
 
             except Exception as e:
                 error_msg = f"❌ Video creation error: {str(e)}"
@@ -5565,35 +5685,45 @@ class WorkingF5Bot:
 
                                     subtitle_style = video_settings.get('subtitle_style') or ''
 
-                                    # Create video job
-                                    success, job_id = await self.video_queue_manager.create_video_job(
-                                        audio_path=audio_file_path,
-                                        image_path=image_path,
-                                        counter=counter,
+                                    # DIRECT VIDEO GENERATION (NO QUEUE)
+                                    await context.bot.send_message(
                                         chat_id=actual_chat_id,
-                                        subtitle_style=subtitle_style
+                                        text=f"🎬 Creating video for {filename}..."
                                     )
 
-                                    if success:
-                                        # Delete image from GDrive after upload
+                                    try:
+                                        # Create video directly
+                                        video_path, gdrive_link, gofile_link = await self.create_video_directly(
+                                            audio_path=audio_file_path,
+                                            image_path=image_path,
+                                            counter=counter,
+                                            chat_id=actual_chat_id,
+                                            subtitle_style=subtitle_style,
+                                            context=context
+                                        )
+
+                                        # Delete image from GDrive after use
                                         if image_file_id:
                                             await asyncio.to_thread(
                                                 self.gdrive_manager.delete_image_from_gdrive,
                                                 image_file_id
                                             )
 
-                                        pending = self.video_queue_manager.get_pending_jobs_count()
+                                        # Send success message with links
                                         await context.bot.send_message(
                                             chat_id=actual_chat_id,
-                                            text=f"✅ Video queued for {filename}! (Job #{job_id})\n"
-                                                 f"📋 Queue: {pending} pending"
+                                            text=f"✅ Video ready for {filename}!\n"
+                                                 f"🔗 GDrive: {gdrive_link}\n"
+                                                 f"🔗 Gofile: {gofile_link}"
                                         )
-                                        print(f"✅ Video job created: {job_id} for {filename}")
-                                    else:
+                                        print(f"✅ Video created: {counter}.mp4 for {filename}")
+
+                                    except Exception as video_err:
                                         await context.bot.send_message(
                                             chat_id=actual_chat_id,
-                                            text=f"❌ Video queue failed for {filename}"
+                                            text=f"❌ Video creation failed for {filename}: {str(video_err)[:100]}"
                                         )
+                                        raise
 
                         except Exception as e:
                             print(f"❌ Video queue error for {filename}: {e}")

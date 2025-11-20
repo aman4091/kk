@@ -16,8 +16,8 @@ async def process_with_gemini(self, transcript, chat_id, context, custom_prompt=
         # Configure Gemini
         genai.configure(api_key=api_key)
 
-        # Use latest Gemini Flash model
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')  # or gemini-1.5-flash-latest
+        # Use Gemini 2.5 Flash (latest stable)
+        model = genai.GenerativeModel('gemini-2.5-flash')
 
         # Split transcript into chunks
         chunk_size = int(os.getenv("GEMINI_CHUNK_SIZE", 7000))
