@@ -1423,7 +1423,7 @@ class WorkingF5Bot:
                 srt_file = os.path.join(work_dir, f"{counter}.srt")
 
                 srt_path = await asyncio.to_thread(
-                    self.video_generator.generate_subtitles_with_whisper,
+                    self.video_generator.generate_subtitles_whisper,
                     audio_path, srt_file
                 )
 
