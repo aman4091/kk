@@ -1419,24 +1419,26 @@ class WorkingF5Bot:
                 print(f"📝 Step 2: Generating subtitles...")
                 await context.bot.send_message(chat_id, f"   📝 [2/4] Generating subtitles...")
 
-                # Transcribe with Whisper
-                from gdrive_manager import GDriveImageManager
-                gdrive = GDriveImageManager()
+                # Generate SRT with Whisper (using VideoGenerator)
+                srt_file = os.path.join(work_dir, f"{counter}.srt")
 
-                srt_content = await asyncio.to_thread(
-                    gdrive.transcribe_audio_with_whisper,
-                    audio_path
+                srt_path = await asyncio.to_thread(
+                    self.video_generator.generate_subtitles_with_whisper,
+                    audio_path, srt_file
                 )
+
+                if not srt_path:
+                    raise Exception("Subtitle generation failed")
 
                 # Convert SRT to ASS with style
-                ass_content = await asyncio.to_thread(
-                    gdrive.convert_srt_to_ass,
-                    srt_content, subtitle_style
+                ass_path = await asyncio.to_thread(
+                    self.video_generator.convert_srt_to_ass,
+                    srt_path, subtitle_style, ass_file
                 )
 
-                # Save ASS file
-                with open(ass_file, 'w', encoding='utf-8') as f:
-                    f.write(ass_content)
+                if not ass_path:
+                    raise Exception("SRT to ASS conversion failed")
+
                 print(f"✅ Subtitles created: {ass_file}")
 
                 # Step 3: Burn subtitles
