@@ -5326,6 +5326,10 @@ class WorkingF5Bot:
             print(f"❌ Media channel callback error: {e}")
             import traceback
             traceback.print_exc()
+            try:
+                await query.message.reply_text(f"❌ Error: {str(e)}")
+            except:
+                pass
 
     async def handle_media_date_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle date selection for script/thumbnail"""
@@ -5361,6 +5365,10 @@ class WorkingF5Bot:
             print(f"❌ Media date callback error: {e}")
             import traceback
             traceback.print_exc()
+            try:
+                await query.message.reply_text(f"❌ Error: {str(e)}")
+            except:
+                pass
 
     async def handle_media_slot_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle slot selection - download script or upload thumbnail"""
