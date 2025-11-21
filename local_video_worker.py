@@ -457,7 +457,7 @@ class LocalVideoWorker:
                     print(f"📦 Organizing video to daily folder...")
                     from daily_video_organizer import create_organizer
 
-                    organizer = create_organizer(self.supabase_client, self.gdrive)
+                    organizer = create_organizer(self.supabase, self.gdrive)
 
                     # Parse date if string
                     if isinstance(target_date, str):
