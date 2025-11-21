@@ -5240,7 +5240,8 @@ class WorkingF5Bot:
                 if not is_youtube:
                     # This looks like a script - show channel selection
                     await self.handle_script_submission(update, context, script_content)
-                    # Don't return - let normal flow continue for video queue
+                    # Return here - inline keyboard will handle everything
+                    return
 
             # COMPLETELY SILENT queuing - NO messages at all
             # Directly add to queue without calling process_text messaging
@@ -5329,7 +5330,8 @@ class WorkingF5Bot:
                 if not is_youtube:
                     # This looks like a script - show channel selection
                     await self.handle_script_submission(update, context, script_text)
-                    # Don't return - let normal flow continue for video queue
+                    # Return here - inline keyboard will handle everything
+                    return
 
             # Check for YouTube links (both videos AND channels)
             youtube_patterns = [
