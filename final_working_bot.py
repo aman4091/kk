@@ -3423,6 +3423,36 @@ class WorkingF5Bot:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
 
+    async def script_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """View existing scripts - show inline keyboard for channel selection"""
+        try:
+            # Store mode in context
+            context.user_data['media_mode'] = 'view_script'
+
+            # Show channel selection
+            keyboard = [
+                [
+                    InlineKeyboardButton("BI", callback_data="media_ch_BI"),
+                    InlineKeyboardButton("AFG", callback_data="media_ch_AFG"),
+                    InlineKeyboardButton("JIMMY", callback_data="media_ch_JIMMY"),
+                ],
+                [
+                    InlineKeyboardButton("GYH", callback_data="media_ch_GYH"),
+                    InlineKeyboardButton("ANU", callback_data="media_ch_ANU"),
+                    InlineKeyboardButton("JM", callback_data="media_ch_JM"),
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                "📝 View Script\n\n"
+                "Select channel:",
+                reply_markup=reply_markup
+            )
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
     async def set_openrouter_model_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Change OpenRouter model via Telegram"""
         try:
@@ -4840,9 +4870,20 @@ class WorkingF5Bot:
         """Button callbacks handle kariye"""
         query = update.callback_query
         await query.answer()
-        
+
         data = query.data
-        
+
+        # Media (script/thumbnail) callbacks
+        if data.startswith("media_ch_"):
+            await self.handle_media_channel_callback(update, context)
+            return
+        elif data.startswith("media_dt_"):
+            await self.handle_media_date_callback(update, context)
+            return
+        elif data.startswith("media_sl_"):
+            await self.handle_media_slot_callback(update, context)
+            return
+
         if data.startswith("speed_"):
             self.audio_speed = float(data.replace("speed_", ""))
             # Save configuration to file
@@ -5245,62 +5286,232 @@ class WorkingF5Bot:
             except:
                 pass
 
+    # =============================================================================
+    # MEDIA (SCRIPT/THUMBNAIL) CALLBACK HANDLERS
+    # =============================================================================
+
+    async def handle_media_channel_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle channel selection for script/thumbnail"""
+        try:
+            query = update.callback_query
+            channel_code = query.data.replace("media_ch_", "")
+
+            # Store channel
+            context.user_data['media_channel'] = channel_code
+
+            # Show date selection (next 7 days)
+            from datetime import datetime, timedelta
+            keyboard = []
+            for days in range(1, 8):
+                date = (datetime.now() + timedelta(days=days)).date()
+                date_str = date.strftime('%Y-%m-%d')
+                display = f"{date_str} ({date.strftime('%a')})"
+
+                keyboard.append([
+                    InlineKeyboardButton(display, callback_data=f"media_dt_{channel_code}_{date_str}")
+                ])
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            mode = context.user_data.get('media_mode', 'view_script')
+            icon = "📝" if mode == "view_script" else "📸"
+
+            await query.edit_message_text(
+                f"{icon} {channel_code}\n\n"
+                f"Select date:",
+                reply_markup=reply_markup
+            )
+
+        except Exception as e:
+            print(f"❌ Media channel callback error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def handle_media_date_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle date selection for script/thumbnail"""
+        try:
+            query = update.callback_query
+            # Parse: media_dt_CHANNEL_DATE
+            parts = query.data.replace("media_dt_", "").split("_")
+            channel_code = parts[0]
+            date_str = "_".join(parts[1:])  # Handle YYYY-MM-DD
+
+            # Store date
+            context.user_data['media_date'] = date_str
+
+            # Show slot selection
+            keyboard = [
+                [InlineKeyboardButton("Video 1", callback_data=f"media_sl_{channel_code}_{date_str}_1")],
+                [InlineKeyboardButton("Video 2", callback_data=f"media_sl_{channel_code}_{date_str}_2")],
+                [InlineKeyboardButton("Video 3", callback_data=f"media_sl_{channel_code}_{date_str}_3")],
+                [InlineKeyboardButton("Video 4", callback_data=f"media_sl_{channel_code}_{date_str}_4")],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            mode = context.user_data.get('media_mode', 'view_script')
+            icon = "📝" if mode == "view_script" else "📸"
+
+            await query.edit_message_text(
+                f"{icon} {channel_code} - {date_str}\n\n"
+                f"Select video slot:",
+                reply_markup=reply_markup
+            )
+
+        except Exception as e:
+            print(f"❌ Media date callback error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def handle_media_slot_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle slot selection - download script or upload thumbnail"""
+        try:
+            query = update.callback_query
+            # Parse: media_sl_CHANNEL_DATE_NUM
+            parts = query.data.replace("media_sl_", "").split("_")
+            channel_code = parts[0]
+            video_num = int(parts[-1])
+            date_str = "_".join(parts[1:-1])
+
+            mode = context.user_data.get('media_mode', 'view_script')
+
+            from datetime import datetime
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+
+            if mode == 'view_script':
+                # Download and send script
+                await query.edit_message_text(f"📥 Fetching script...")
+
+                if not self.video_organizer:
+                    await query.message.reply_text("❌ Video organizer not initialized")
+                    return
+
+                script_id = self.video_organizer.get_script_file_id(target_date, channel_code, video_num)
+
+                if not script_id:
+                    await query.message.reply_text(
+                        f"❌ No script found for:\n"
+                        f"📁 {date_str}/{channel_code}/video_{video_num}/"
+                    )
+                    return
+
+                # Download from GDrive
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                script_path = f"{temp_dir}/script_{channel_code}_{video_num}.txt"
+
+                try:
+                    # Download file
+                    request = self.gdrive_manager.service.files().get_media(fileId=script_id)
+                    with open(script_path, 'wb') as f:
+                        from googleapiclient.http import MediaIoBaseDownload
+                        import io
+                        fh = io.BytesIO()
+                        downloader = MediaIoBaseDownload(fh, request)
+                        done = False
+                        while not done:
+                            status, done = downloader.next_chunk()
+                        fh.seek(0)
+                        f.write(fh.read())
+
+                    # Send file
+                    await query.message.reply_document(
+                        document=open(script_path, 'rb'),
+                        filename=f"{channel_code}_video{video_num}_{date_str}.txt",
+                        caption=f"📝 Script: {channel_code} video {video_num}\n📅 Date: {date_str}"
+                    )
+
+                    await query.message.reply_text("✅ Script sent!")
+
+                except Exception as download_error:
+                    print(f"❌ Script download error: {download_error}")
+                    await query.message.reply_text(f"❌ Download failed: {str(download_error)}")
+
+            elif mode == 'upload_thumbnail':
+                # Upload thumbnail
+                await query.edit_message_text(f"📤 Uploading thumbnail...")
+
+                thumbnail_path = context.user_data.get('thumbnail_path')
+                if not thumbnail_path:
+                    await query.message.reply_text("❌ Thumbnail file not found")
+                    return
+
+                if not self.video_organizer:
+                    await query.message.reply_text("❌ Video organizer not initialized")
+                    return
+
+                success = await self.video_organizer.upload_thumbnail(
+                    target_date, channel_code, video_num, thumbnail_path
+                )
+
+                if success:
+                    await query.message.reply_text(
+                        f"✅ Thumbnail uploaded!\n\n"
+                        f"📁 {date_str}/{channel_code}/video_{video_num}/thumbnail.jpg"
+                    )
+                else:
+                    await query.message.reply_text("❌ Thumbnail upload failed")
+
+                # Cleanup
+                try:
+                    import os
+                    os.remove(thumbnail_path)
+                except:
+                    pass
+
+            # Clear context
+            context.user_data.pop('media_mode', None)
+            context.user_data.pop('media_channel', None)
+            context.user_data.pop('media_date', None)
+            context.user_data.pop('thumbnail_path', None)
+
+        except Exception as e:
+            print(f"❌ Media slot callback error: {e}")
+            import traceback
+            traceback.print_exc()
+            await query.message.reply_text(f"❌ Error: {str(e)}")
+
     async def handle_thumbnail_image(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
-        Handle thumbnail images with channel/video tagging
-        Supports both caption and reply methods
+        Handle thumbnail images with inline keyboard selection
         """
         try:
             if not update.message.photo:
                 return
 
-            # Get caption from message or reply
-            caption = update.message.caption or ""
-
-            if update.message.reply_to_message:
-                reply_text = update.message.reply_to_message.text or ""
-                caption = caption or reply_text
-
-            if not caption:
-                return  # Not a thumbnail tag
-
-            # Parse pattern: "{CHANNEL} video {NUM}"
-            match = re.match(r'(\w+)\s+video\s+(\d+)', caption, re.IGNORECASE)
-
-            if not match:
-                return  # Not a thumbnail tag
-
-            channel_code = match.group(1).upper()
-            video_number = int(match.group(2))
-
-            # Validate
-            valid_channels = ['BI', 'AFG', 'JIMMY', 'GYH', 'ANU', 'JM']
-            if channel_code not in valid_channels:
-                await update.message.reply_text(f"❌ Invalid channel: {channel_code}")
-                return
-
-            if video_number < 1 or video_number > 4:
-                await update.message.reply_text(f"❌ Invalid video number: {video_number} (must be 1-4)")
-                return
-
-            # Get largest photo
+            # Download image
             photo = update.message.photo[-1]
-            file_id = photo.file_id
-            file_unique_id = photo.file_unique_id
+            file = await context.bot.get_file(photo.file_id)
 
-            # Add to queue
-            success = self.supabase.add_thumbnail_to_queue(
-                file_id, channel_code, video_number, file_unique_id
+            # Save temporarily
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            image_path = f"{temp_dir}/thumbnail_{photo.file_id}.jpg"
+            await file.download_to_drive(image_path)
+
+            # Store in context
+            context.user_data['media_mode'] = 'upload_thumbnail'
+            context.user_data['thumbnail_path'] = image_path
+
+            # Show channel selection
+            keyboard = [
+                [
+                    InlineKeyboardButton("BI", callback_data="media_ch_BI"),
+                    InlineKeyboardButton("AFG", callback_data="media_ch_AFG"),
+                    InlineKeyboardButton("JIMMY", callback_data="media_ch_JIMMY"),
+                ],
+                [
+                    InlineKeyboardButton("GYH", callback_data="media_ch_GYH"),
+                    InlineKeyboardButton("ANU", callback_data="media_ch_ANU"),
+                    InlineKeyboardButton("JM", callback_data="media_ch_JM"),
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                "📸 Upload Thumbnail\n\n"
+                "Select channel:",
+                reply_markup=reply_markup
             )
-
-            if success:
-                await update.message.reply_text(
-                    f"✅ Thumbnail queued for **{channel_code} video {video_number}**\n\n"
-                    f"It will be processed automatically when the video is ready.",
-                    parse_mode="Markdown"
-                )
-            else:
-                await update.message.reply_text("❌ Failed to queue thumbnail")
 
         except Exception as e:
             print(f"❌ Thumbnail handler error: {e}")
@@ -7669,6 +7880,7 @@ async def async_main():
 
     # Daily Video Management
     application.add_handler(CommandHandler("reset_daily_videos", bot_instance.reset_daily_videos_command))
+    application.add_handler(CommandHandler("script", bot_instance.script_command))
 
     # All other commands accessible via Settings menu:
     # - Test: Settings > Debug Tools > Run Test
