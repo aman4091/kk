@@ -35,7 +35,7 @@ class VideoQueueManager:
 
     async def create_video_job(self, audio_path: str, image_path: str,
                                counter: int, chat_id: int,
-                               subtitle_style: str) -> Tuple[bool, Optional[str]]:
+                               subtitle_style: str) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Create video job and upload to queue
 
@@ -53,7 +53,7 @@ class VideoQueueManager:
             subtitle_style: ASS subtitle style string
 
         Returns:
-            Tuple[success: bool, job_id: str or None]
+            Tuple[success: bool, job_id: str or None, queue_audio_id: str or None]
         """
         # Generate unique job_id (use counter if available, otherwise timestamp)
         import time
@@ -136,13 +136,13 @@ class VideoQueueManager:
             print(f"   Status: pending")
             print(f"{'='*60}\n")
 
-            return True, job_id
+            return True, job_id, audio_file_id
 
         except Exception as e:
             print(f"❌ Error creating video job: {e}")
             import traceback
             traceback.print_exc()
-            return False, None
+            return False, None, None
 
     async def _upload_to_queue(self, file_path: str, filename: str) -> Optional[str]:
         """

@@ -5103,7 +5103,7 @@ class WorkingF5Bot:
                                 counter = self.supabase.increment_counter()
 
                                 # Create video job (standard queue)
-                                success, job_id = await self.video_queue_manager.create_video_job(
+                                success, job_id, queue_audio_id = await self.video_queue_manager.create_video_job(
                                     audio_path=audio_path,
                                     image_path=image_path,
                                     counter=counter,
@@ -5112,6 +5112,19 @@ class WorkingF5Bot:
                                 )
 
                                 if success:
+                                    # Update tracking table with queue audio ID (if this is a daily video)
+                                    current_tracking_id = context.user_data.get('current_tracking_id')
+                                    if current_tracking_id and queue_audio_id and self.video_organizer:
+                                        print(f"📝 Updating tracking table with queue audio ID: {queue_audio_id}")
+                                        update_success = self.supabase.update_video_tracking(
+                                            current_tracking_id,
+                                            {'audio_gdrive_id': queue_audio_id}
+                                        )
+                                        if update_success:
+                                            print(f"✅ Tracking table updated with queue audio ID")
+                                        else:
+                                            print(f"⚠️ Failed to update tracking table (non-critical)")
+
                                     if image_file_id:
                                         await asyncio.to_thread(
                                             self.gdrive_manager.delete_image_from_gdrive,
