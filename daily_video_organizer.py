@@ -152,6 +152,10 @@ class DailyVideoOrganizer:
 
             # Update database
             print(f"💾 Updating database...")
+            print(f"   Tracking ID: {tracking_id}")
+            print(f"   ORIGINAL Audio GDrive ID (will be stored): {audio_gdrive_id}")
+            print(f"   NEW Copied Audio ID (not stored): {new_audio_id}")
+
             updates = {
                 'audio_gdrive_id': audio_gdrive_id,  # Keep ORIGINAL audio ID for worker query
                 'script_gdrive_id': script_id,
@@ -164,7 +168,7 @@ class DailyVideoOrganizer:
             if success:
                 print(f"✅ Audio organized successfully!")
                 print(f"📁 Folder ID: {video_folder_id}")
-                print(f"🎵 Audio ID: {new_audio_id}")
+                print(f"🎵 Audio ID (stored in tracking): {audio_gdrive_id}")
                 if script_id:
                     print(f"📝 Script ID: {script_id}")
             else:

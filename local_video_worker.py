@@ -456,11 +456,16 @@ class LocalVideoWorker:
 
                 # Query daily_video_tracking table for matching audio
                 audio_gdrive_id = job.get('audio_gdrive_id')
+                print(f"🔍 Checking for daily video metadata...")
+                print(f"   Audio GDrive ID from job: {audio_gdrive_id}")
+
                 if audio_gdrive_id:
                     result = self.supabase.client.table('daily_video_tracking')\
                         .select('*')\
                         .eq('audio_gdrive_id', audio_gdrive_id)\
                         .execute()
+
+                    print(f"   Query result count: {len(result.data) if result.data else 0}")
 
                     if result.data and len(result.data) > 0:
                         video_entry = result.data[0]
@@ -469,6 +474,13 @@ class LocalVideoWorker:
                         target_date = video_entry.get('date')
                         tracking_id = video_entry.get('id')
                         print(f"📋 Found daily video metadata: {channel} video {video_num} for {target_date}")
+                        print(f"   Tracking ID: {tracking_id}")
+                    else:
+                        print(f"❌ No tracking entry found for audio_gdrive_id: {audio_gdrive_id}")
+                        print(f"   This means either:")
+                        print(f"   1. No inline keyboard was used (not a daily video)")
+                        print(f"   2. organize_audio didn't update tracking table")
+                        print(f"   3. audio_gdrive_id mismatch between queue and tracking")
 
                 if channel and video_num and target_date and gdrive_file_id:
                     print(f"📦 Organizing video to daily folder...")
