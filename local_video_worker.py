@@ -473,7 +473,6 @@ class LocalVideoWorker:
                 if channel and video_num and target_date and gdrive_file_id:
                     print(f"📦 Organizing video to daily folder...")
                     from daily_video_organizer import create_organizer
-                    import os
 
                     parent_folder_id = os.getenv('DAILY_VIDEO_PARENT_FOLDER', '1ZKnCa-7ieNt3bLhI6f6mCZBmyAP0-dnF')
                     organizer = create_organizer(self.supabase, self.gdrive, parent_folder_id)
