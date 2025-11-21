@@ -35,10 +35,7 @@ class VideoQueueManager:
 
     async def create_video_job(self, audio_path: str, image_path: str,
                                counter: int, chat_id: int,
-                               subtitle_style: str,
-                               channel_code: str = None,
-                               video_number: int = None,
-                               target_date: str = None) -> Tuple[bool, Optional[str]]:
+                               subtitle_style: str) -> Tuple[bool, Optional[str]]:
         """
         Create video job and upload to queue
 
@@ -120,14 +117,6 @@ class VideoQueueManager:
                 'subtitle_style': subtitle_style or '',
                 'priority': 0
             }
-
-            # Add optional daily video metadata if provided
-            if channel_code:
-                job_data['channel_code'] = channel_code
-            if video_number:
-                job_data['video_number'] = video_number
-            if target_date:
-                job_data['target_date'] = target_date
 
             result = self.supabase.client.table('video_jobs').insert(job_data).execute()
 
