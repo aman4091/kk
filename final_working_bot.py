@@ -5223,6 +5223,12 @@ class WorkingF5Bot:
 
             print(f"✅ Text file loaded: {len(script_content)} characters from {document.file_name}")
 
+            # Check if this is a script for daily video (not from channel)
+            if not is_channel and len(script_content) > 100:
+                # Show inline keyboard for channel selection
+                await self.handle_script_submission(update, context, script_content)
+                return
+
             # COMPLETELY SILENT queuing - NO messages at all
             # Directly add to queue without calling process_text messaging
             timestamp = int(time.time() * 1000)
