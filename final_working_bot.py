@@ -5103,27 +5103,33 @@ class WorkingF5Bot:
                                 counter = self.supabase.increment_counter()
 
                                 # Create video job (standard queue)
-                                success, job_id, queue_audio_id = await self.video_queue_manager.create_video_job(
-                                    audio_path=audio_path,
-                                    image_path=image_path,
-                                    counter=counter,
-                                    chat_id=chat_id,
-                                    subtitle_style=subtitle_style
-                                )
+                                # Check if this is a daily video (has audio gdrive ID from organize_audio)
+                                daily_audio_gdrive_id = context.user_data.get('daily_audio_gdrive_id')
+
+                                if daily_audio_gdrive_id:
+                                    # Daily video: Use existing GDrive audio (no re-upload)
+                                    print(f"📎 Daily video: Using existing audio from GDrive ({daily_audio_gdrive_id[:20]}...)")
+                                    success, job_id, queue_audio_id = await self.video_queue_manager.create_video_job(
+                                        audio_gdrive_id=daily_audio_gdrive_id,
+                                        image_path=image_path,
+                                        counter=counter,
+                                        chat_id=chat_id,
+                                        subtitle_style=subtitle_style
+                                    )
+                                    # Clear the stored audio ID
+                                    context.user_data.pop('daily_audio_gdrive_id', None)
+                                else:
+                                    # Regular video: Upload audio from local file
+                                    print(f"📤 Regular video: Uploading audio to queue folder")
+                                    success, job_id, queue_audio_id = await self.video_queue_manager.create_video_job(
+                                        audio_path=audio_path,
+                                        image_path=image_path,
+                                        counter=counter,
+                                        chat_id=chat_id,
+                                        subtitle_style=subtitle_style
+                                    )
 
                                 if success:
-                                    # Update tracking table with queue audio ID (if this is a daily video)
-                                    current_tracking_id = context.user_data.get('current_tracking_id')
-                                    if current_tracking_id and queue_audio_id and self.video_organizer:
-                                        print(f"📝 Updating tracking table with queue audio ID: {queue_audio_id}")
-                                        update_success = self.supabase.update_video_tracking(
-                                            current_tracking_id,
-                                            {'audio_gdrive_id': queue_audio_id}
-                                        )
-                                        if update_success:
-                                            print(f"✅ Tracking table updated with queue audio ID")
-                                        else:
-                                            print(f"⚠️ Failed to update tracking table (non-critical)")
 
                                     if image_file_id:
                                         await asyncio.to_thread(
@@ -6974,6 +6980,9 @@ class WorkingF5Bot:
                             )
 
                             if success_org:
+                                # Store audio gdrive ID for queue creation later
+                                context.user_data['daily_audio_gdrive_id'] = gdrive_file_id
+
                                 await context.bot.send_message(
                                     chat_id,
                                     f"✅ Audio organized!\n"

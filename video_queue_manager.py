@@ -33,20 +33,21 @@ class VideoQueueManager:
 
         print("✅ VideoQueueManager initialized")
 
-    async def create_video_job(self, audio_path: str, image_path: str,
-                               counter: int, chat_id: int,
-                               subtitle_style: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    async def create_video_job(self, audio_path: str = None, audio_gdrive_id: str = None,
+                               image_path: str = None, counter: int = None, chat_id: int = None,
+                               subtitle_style: str = '') -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Create video job and upload to queue
 
         Steps:
-        1. Upload audio to Google Drive queue folder
+        1. Upload audio to Google Drive queue folder (OR use existing audio_gdrive_id)
         2. Upload image to Google Drive queue folder
         3. Create metadata JSON
         4. Insert job into Supabase video_jobs table
 
         Args:
-            audio_path: Local path to audio file
+            audio_path: Local path to audio file (optional if audio_gdrive_id provided)
+            audio_gdrive_id: Existing GDrive audio ID (optional, skips audio upload)
             image_path: Local path to image file
             counter: Job ID (counter number)
             chat_id: Telegram chat ID
@@ -71,22 +72,32 @@ class VideoQueueManager:
             if not self.queue_folder_id:
                 print("❌ Queue folder not configured!")
                 print("   Set GDRIVE_VIDEO_QUEUE_FOLDER in environment")
-                return False, None
+                return False, None, None
 
-            # 1. Upload audio to Google Drive queue folder
-            print(f"📤 Uploading audio to queue folder...")
-            audio_filename = f"{job_id}_audio.wav"
+            # 1. Get or upload audio to Google Drive queue folder
+            if audio_gdrive_id:
+                # Use existing GDrive audio (no upload needed)
+                print(f"📎 Using existing audio from GDrive...")
+                audio_file_id = audio_gdrive_id
+                print(f"✅ Audio ID: {audio_file_id}")
+            elif audio_path:
+                # Upload audio to queue folder
+                print(f"📤 Uploading audio to queue folder...")
+                audio_filename = f"{job_id}_audio.wav"
 
-            audio_file_id = await self._upload_to_queue(
-                audio_path,
-                audio_filename
-            )
+                audio_file_id = await self._upload_to_queue(
+                    audio_path,
+                    audio_filename
+                )
 
-            if not audio_file_id:
-                print(f"❌ Failed to upload audio")
-                return False, None
+                if not audio_file_id:
+                    print(f"❌ Failed to upload audio")
+                    return False, None, None
 
-            print(f"✅ Audio uploaded: {audio_file_id}")
+                print(f"✅ Audio uploaded: {audio_file_id}")
+            else:
+                print(f"❌ No audio provided (need audio_path or audio_gdrive_id)")
+                return False, None, None
 
             # 2. Upload image to Google Drive queue folder
             print(f"📤 Uploading image to queue folder...")
