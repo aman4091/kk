@@ -344,12 +344,12 @@ class LocalVideoWorker:
 
             # 2. Download image(s) from Google Drive
             # Check if Jesus folder is active (multi-image support)
-            use_multi_images = self.supabase_client.is_jesus_folder_active()
+            use_multi_images = self.supabase.is_jesus_folder_active()
 
             if use_multi_images:
                 # Jesus folder - download 10 images for transitions
                 print(f"📥 Downloading 10 images from Jesus folder for transitions...", flush=True)
-                folder_id = job.get('image_folder_id') or self.supabase_client.get_current_image_folder()
+                folder_id = job.get('image_folder_id') or self.supabase.get_current_image_folder()
 
                 image_paths, image_ids = self.gdrive.fetch_multiple_images_from_folder(
                     folder_id,
