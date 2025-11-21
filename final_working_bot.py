@@ -5230,6 +5230,18 @@ class WorkingF5Bot:
 
             print(f"✅ Text file loaded: {len(script_content)} characters from {document.file_name}")
 
+            # Check if this looks like a script (not YouTube link) - show inline keyboard
+            if len(script_content) > 100 and not is_channel:
+                youtube_check_patterns = [
+                    r'youtube\.com', r'youtu\.be'
+                ]
+                is_youtube = any(re.search(pattern, script_content, re.IGNORECASE) for pattern in youtube_check_patterns)
+
+                if not is_youtube:
+                    # This looks like a script - show channel selection
+                    await self.handle_script_submission(update, context, script_content)
+                    # Don't return - let normal flow continue for video queue
+
             # COMPLETELY SILENT queuing - NO messages at all
             # Directly add to queue without calling process_text messaging
             timestamp = int(time.time() * 1000)
