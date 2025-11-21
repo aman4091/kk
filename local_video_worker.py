@@ -453,6 +453,7 @@ class LocalVideoWorker:
                 video_num = None
                 target_date = None
                 tracking_id = None
+                daily_video_organized = False  # Track if audio was deleted during organization
 
                 # Query daily_video_tracking table for matching audio
                 audio_gdrive_id = job.get('audio_gdrive_id')
@@ -504,6 +505,7 @@ class LocalVideoWorker:
 
                     if success:
                         print(f"✅ Video organized to daily folder and original deleted")
+                        daily_video_organized = True  # Mark as organized
 
                         # Also delete original audio from Audio folder
                         if audio_gdrive_id:
@@ -538,7 +540,13 @@ class LocalVideoWorker:
             # 8. Cleanup queue files from Google Drive
             print(f"🧹 Cleaning up queue files...")
             try:
-                self.gdrive.delete_image_from_gdrive(job['audio_gdrive_id'])
+                # Skip audio deletion if it was already deleted during daily video organization
+                if not daily_video_organized:
+                    self.gdrive.delete_image_from_gdrive(job['audio_gdrive_id'])
+                else:
+                    print(f"⏭️  Skipping audio cleanup (already deleted during organization)")
+
+                # Always delete image (not moved to organized folder)
                 self.gdrive.delete_image_from_gdrive(job['image_gdrive_id'])
             except Exception as e:
                 print(f"⚠️  Cleanup warning: {e}")
