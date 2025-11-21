@@ -265,6 +265,86 @@ class DailyVideoOrganizer:
             traceback.print_exc()
             return False
 
+    def get_script_file_id(self, date, channel_code: str, video_number: int):
+        """
+        Get script file ID from organized folder
+
+        Args:
+            date: Target date
+            channel_code: Channel code
+            video_number: Video number (1-4)
+
+        Returns:
+            script_gdrive_id or None
+        """
+        try:
+            # Get tracking entry
+            tracking = self.supabase.get_video_tracking(date, channel_code, video_number)
+            if not tracking:
+                print(f"❌ No tracking entry found for {channel_code} video {video_number} on {date}")
+                return None
+
+            script_id = tracking.get('script_gdrive_id')
+            if not script_id:
+                print(f"⚠️ No script file found in tracking")
+                return None
+
+            return script_id
+
+        except Exception as e:
+            print(f"❌ Error getting script file ID: {e}")
+            return None
+
+    async def upload_thumbnail(self, date, channel_code: str, video_number: int, image_path: str) -> bool:
+        """
+        Upload thumbnail to organized folder
+
+        Args:
+            date: Target date
+            channel_code: Channel code
+            video_number: Video number (1-4)
+            image_path: Local path to thumbnail image
+
+        Returns:
+            success: bool
+        """
+        try:
+            print(f"\n{'='*60}")
+            print(f"📸 Uploading Thumbnail: {channel_code} video {video_number}")
+            print(f"{'='*60}")
+
+            # Create folder structure (or get existing)
+            video_folder_id = self.create_folder_structure(date, channel_code, video_number)
+            if not video_folder_id:
+                return False
+
+            # Upload thumbnail
+            print(f"📤 Uploading thumbnail.jpg...")
+            thumbnail_id = self.gdrive.upload_file(
+                image_path,
+                video_folder_id,
+                filename="thumbnail.jpg"
+            )
+
+            if not thumbnail_id:
+                print(f"❌ Failed to upload thumbnail")
+                return False
+
+            print(f"✅ Thumbnail uploaded: {thumbnail_id}")
+
+            # Update database (optional - add thumbnail_gdrive_id field if needed)
+            # For now, just confirmation
+            print(f"✅ Thumbnail saved to organized folder!")
+            print(f"📁 Folder: {date}/{channel_code}/video_{video_number}/")
+
+            return True
+
+        except Exception as e:
+            print(f"❌ Error uploading thumbnail: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     async def process_thumbnail_queue(self, bot_token: str):
         """
         Background job: Process pending thumbnails from queue
