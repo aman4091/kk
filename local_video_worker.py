@@ -446,6 +446,43 @@ class LocalVideoWorker:
             # 6. Mark job as completed
             self.mark_job_completed(job_id, gdrive_file_id or '', gofile_link or '')
 
+            # 6.5. POST-PROCESS: Organize video to daily folder (if metadata available)
+            try:
+                # Check if this is a daily video job (has channel/video metadata)
+                channel = job.get('channel_code')
+                video_num = job.get('video_number')
+                target_date = job.get('target_date')
+
+                if channel and video_num and target_date and gdrive_file_id:
+                    print(f"📦 Organizing video to daily folder...")
+                    from daily_video_organizer import create_organizer
+
+                    organizer = create_organizer(self.supabase_client, self.gdrive)
+
+                    # Parse date if string
+                    if isinstance(target_date, str):
+                        from datetime import datetime
+                        target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+
+                    success = await organizer.organize_video(
+                        gdrive_file_id,
+                        target_date,
+                        channel,
+                        video_num,
+                        delete_original=True  # Delete from output folder
+                    )
+
+                    if success:
+                        print(f"✅ Video organized to daily folder and original deleted")
+                    else:
+                        print(f"⚠️ Video organization failed (non-critical)")
+                else:
+                    print(f"ℹ️ Not a daily video job - skipping organization")
+            except Exception as org_error:
+                print(f"⚠️ Video organization error (non-critical): {org_error}")
+                import traceback
+                traceback.print_exc()
+
             # 7. Send Telegram notification (plain text, no markdown)
             message = f"✅ Video Ready! Job #{job_id}\n\n"
             message += f"📹 Size: {video_size_mb} MB\n\n"

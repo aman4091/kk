@@ -272,6 +272,249 @@ class GDriveImageManager:
             print(f"❌ GDrive folder info error: {e}")
             return None
 
+    def create_folder(self, folder_name, parent_folder_id=None):
+        """
+        Create a new folder in Google Drive
+
+        Args:
+            folder_name: Name of folder to create
+            parent_folder_id: Optional parent folder ID
+
+        Returns:
+            str: New folder ID or None if failed
+        """
+        try:
+            if not self.service:
+                print("❌ GDrive service not initialized")
+                return None
+
+            file_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+
+            if parent_folder_id:
+                file_metadata['parents'] = [parent_folder_id]
+
+            folder = self.service.files().create(
+                body=file_metadata,
+                fields='id, name'
+            ).execute()
+
+            print(f"✅ Created folder: {folder_name} (ID: {folder['id']})")
+            return folder['id']
+
+        except Exception as e:
+            print(f"❌ GDrive folder creation error: {e}")
+            return None
+
+    def folder_exists(self, folder_name, parent_folder_id):
+        """
+        Check if folder exists in parent folder
+
+        Args:
+            folder_name: Name of folder to check
+            parent_folder_id: Parent folder ID
+
+        Returns:
+            str: Folder ID if exists, None otherwise
+        """
+        try:
+            if not self.service:
+                return None
+
+            query = f"name='{folder_name}' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+
+            results = self.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name)',
+                pageSize=1
+            ).execute()
+
+            items = results.get('files', [])
+
+            if items:
+                return items[0]['id']
+            return None
+
+        except Exception as e:
+            print(f"❌ Folder existence check error: {e}")
+            return None
+
+    def get_or_create_folder(self, folder_name, parent_folder_id):
+        """
+        Get existing folder or create if doesn't exist
+
+        Args:
+            folder_name: Name of folder
+            parent_folder_id: Parent folder ID
+
+        Returns:
+            str: Folder ID
+        """
+        existing_id = self.folder_exists(folder_name, parent_folder_id)
+        if existing_id:
+            return existing_id
+        return self.create_folder(folder_name, parent_folder_id)
+
+    def copy_file(self, file_id, destination_folder_id, new_name=None):
+        """
+        Copy a file to a different folder in Google Drive
+
+        Args:
+            file_id: Source file ID
+            destination_folder_id: Destination folder ID
+            new_name: Optional new name for the copy
+
+        Returns:
+            str: New file ID or None if failed
+        """
+        try:
+            if not self.service:
+                print("❌ GDrive service not initialized")
+                return None
+
+            # Prepare file metadata
+            file_metadata = {
+                'parents': [destination_folder_id]
+            }
+
+            if new_name:
+                file_metadata['name'] = new_name
+
+            # Copy file
+            copied_file = self.service.files().copy(
+                fileId=file_id,
+                body=file_metadata,
+                fields='id, name'
+            ).execute()
+
+            print(f"✅ Copied file to folder: {copied_file['name']} (ID: {copied_file['id']})")
+            return copied_file['id']
+
+        except Exception as e:
+            print(f"❌ GDrive file copy error: {e}")
+            return None
+
+    def upload_text_file(self, text_content, folder_id, filename):
+        """
+        Upload text content as a file to Google Drive
+
+        Args:
+            text_content: Text content to upload
+            folder_id: Destination folder ID
+            filename: Name of file
+
+        Returns:
+            str: File ID or None if failed
+        """
+        try:
+            if not self.service:
+                print("❌ GDrive service not initialized")
+                return None
+
+            import io
+            from googleapiclient.http import MediaIoBaseUpload
+
+            # Create file metadata
+            file_metadata = {
+                'name': filename,
+                'parents': [folder_id]
+            }
+
+            # Create file content
+            fh = io.BytesIO(text_content.encode('utf-8'))
+            media = MediaIoBaseUpload(fh, mimetype='text/plain', resumable=True)
+
+            # Upload file
+            file = self.service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id, name'
+            ).execute()
+
+            print(f"✅ Uploaded text file: {filename} (ID: {file['id']})")
+            return file['id']
+
+        except Exception as e:
+            print(f"❌ GDrive text upload error: {e}")
+            return None
+
+    def delete_folder(self, folder_id):
+        """
+        Delete a folder from Google Drive (moves to trash)
+
+        Args:
+            folder_id: Google Drive folder ID
+
+        Returns:
+            bool: True if successful
+        """
+        try:
+            if not self.service:
+                print("❌ GDrive service not initialized")
+                return False
+
+            self.service.files().delete(fileId=folder_id).execute()
+            print(f"✅ Deleted folder from GDrive: {folder_id}")
+            return True
+
+        except Exception as e:
+            print(f"❌ GDrive folder delete error: {e}")
+            return False
+
+    def upload_file(self, file_path, folder_id, filename=None):
+        """
+        Upload a file to Google Drive
+
+        Args:
+            file_path: Local file path
+            folder_id: Destination folder ID
+            filename: Optional custom filename (default: use original name)
+
+        Returns:
+            str: File ID or None if failed
+        """
+        try:
+            if not self.service:
+                print("❌ GDrive service not initialized")
+                return None
+
+            import os
+            from googleapiclient.http import MediaFileUpload
+
+            # Use original filename if not specified
+            if not filename:
+                filename = os.path.basename(file_path)
+
+            # Detect MIME type
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if not mime_type:
+                mime_type = 'application/octet-stream'
+
+            # Create file metadata
+            file_metadata = {
+                'name': filename,
+                'parents': [folder_id]
+            }
+
+            # Upload file
+            media = MediaFileUpload(file_path, mimetype=mime_type, resumable=True)
+            file = self.service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id, name'
+            ).execute()
+
+            print(f"✅ Uploaded file: {filename} (ID: {file['id']})")
+            return file['id']
+
+        except Exception as e:
+            print(f"❌ GDrive file upload error: {e}")
+            return None
+
 
 # Example usage
 if __name__ == '__main__':

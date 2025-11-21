@@ -16,7 +16,9 @@
       "Bash(git push:*)",
       "Bash(git commit:*)",
       "Bash(git rm:*)",
-      "WebFetch(domain:chatgpt.com)"
+      "WebFetch(domain:chatgpt.com)",
+      "Bash(git check-ignore:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

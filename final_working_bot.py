@@ -10,7 +10,7 @@ import telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import whisper
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import glob
 import shutil
@@ -26,6 +26,9 @@ from youtube_processor import YouTubeChannelProcessor, YouTubeProcessorError
 # Video generation imports
 from video_generator import VideoGenerator
 from gdrive_manager import GDriveImageManager
+
+# Daily video organization import
+from daily_video_organizer import create_organizer
 
 # Load environment variables from .env file
 load_dotenv()
@@ -176,6 +179,18 @@ class WorkingF5Bot:
         self.video_generator = None
         self.gdrive_manager = None
         print("✅ Video modules ready (will load when needed)")
+
+        # Initialize Daily Video Organizer
+        self.video_organizer = None
+        try:
+            if self.gdrive_manager is None:
+                self.gdrive_manager = GDriveImageManager()
+            if self.gdrive_manager and self.supabase.is_connected():
+                self.video_organizer = create_organizer(self.supabase, self.gdrive_manager)
+                print("✅ Daily video organizer initialized")
+        except Exception as e:
+            print(f"⚠️ Video organizer initialization failed: {e}")
+
         # Multi-chat configuration (Aman & Anu chats)
         self.active_chats = {
             "aman": "-1002343932866",  # Aman chat
@@ -4913,6 +4928,213 @@ class WorkingF5Bot:
                 print(f"on_pick edit_message_reply_markup error: {e}")
 
 
+    # =============================================================================
+    # DAILY VIDEO ORGANIZATION HANDLERS
+    # =============================================================================
+
+    async def handle_script_submission(self, update: Update, context: ContextTypes.DEFAULT_TYPE, script_text: str):
+        """
+        Handle script submission - show inline keyboard for channel selection
+        """
+        try:
+            # Store script in user context
+            context.user_data['pending_script'] = script_text
+            context.user_data['script_message_id'] = update.message.message_id
+
+            # Create inline keyboard with 6 channels
+            keyboard = [
+                [
+                    InlineKeyboardButton("BI", callback_data="dailyvid_channel_BI"),
+                    InlineKeyboardButton("AFG", callback_data="dailyvid_channel_AFG"),
+                    InlineKeyboardButton("JIMMY", callback_data="dailyvid_channel_JIMMY")
+                ],
+                [
+                    InlineKeyboardButton("GYH", callback_data="dailyvid_channel_GYH"),
+                    InlineKeyboardButton("ANU", callback_data="dailyvid_channel_ANU"),
+                    InlineKeyboardButton("JM", callback_data="dailyvid_channel_JM")
+                ]
+            ]
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                "📝 Script received! Select channel:",
+                reply_markup=reply_markup
+            )
+
+        except Exception as e:
+            print(f"❌ Script submission error: {e}")
+            import traceback
+            traceback.print_exc()
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def handle_channel_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Handle channel selection from inline keyboard
+        """
+        try:
+            query = update.callback_query
+            await query.answer()
+
+            # Extract channel code
+            if not query.data.startswith('dailyvid_channel_'):
+                return
+
+            channel_code = query.data.replace('dailyvid_channel_', '')  # BI, AFG, etc
+
+            # Get script from context
+            script_text = context.user_data.get('pending_script')
+            if not script_text:
+                await query.edit_message_text("❌ Script not found. Please send script again.")
+                return
+
+            # Get tomorrow's date
+            tomorrow = (datetime.now() + timedelta(days=1)).date()
+
+            # Get next available video number
+            video_num = self.supabase.get_next_video_number(tomorrow, channel_code)
+
+            if video_num > 4:
+                await query.edit_message_text(
+                    f"❌ {channel_code} is full for {tomorrow}!\n"
+                    f"All 4 video slots are taken."
+                )
+                return
+
+            # Create tracking entry
+            tracking_id = self.supabase.create_video_tracking(
+                tomorrow, channel_code, video_num, script_text
+            )
+
+            if not tracking_id:
+                await query.edit_message_text("❌ Database error. Please try again.")
+                return
+
+            # Store tracking info
+            context.user_data['current_tracking_id'] = tracking_id
+            context.user_data['current_channel'] = channel_code
+            context.user_data['current_video_num'] = video_num
+            context.user_data['current_date'] = tomorrow
+
+            await query.edit_message_text(
+                f"✅ Processing **{channel_code} video {video_num}** for {tomorrow}\n\n"
+                f"🎵 Generating audio...",
+                parse_mode="Markdown"
+            )
+
+            # Generate audio (existing code)
+            chat_id = query.message.chat.id
+            success, output_files = await self.generate_audio_f5(script_text, chat_id)
+
+            if not success:
+                await context.bot.send_message(chat_id, f"❌ Audio generation failed")
+                return
+
+            # POST-PROCESS: Organize audio (NEW!)
+            if self.video_organizer and output_files:
+                # Get audio GDrive ID from output_files
+                audio_gdrive_id = None
+                for file_info in output_files:
+                    if isinstance(file_info, dict) and 'gdrive_id' in file_info:
+                        audio_gdrive_id = file_info['gdrive_id']
+                        break
+
+                if audio_gdrive_id:
+                    await context.bot.send_message(chat_id, "📦 Organizing files...")
+
+                    success_org = await self.video_organizer.organize_audio(
+                        tracking_id,
+                        audio_gdrive_id,
+                        tomorrow,
+                        channel_code,
+                        video_num,
+                        script_text
+                    )
+
+                    if success_org:
+                        await context.bot.send_message(
+                            chat_id,
+                            f"✅ Audio organized!\n"
+                            f"📁 {tomorrow}/{channel_code}/video_{video_num}/\n\n"
+                            f"🎬 Video generation will start automatically."
+                        )
+                    else:
+                        await context.bot.send_message(chat_id, "⚠️ Organization failed (non-critical)")
+
+            # Existing delivery code continues...
+            await self.send_outputs_by_mode(context, chat_id, output_files, script_text, "Script Audio")
+
+        except Exception as e:
+            print(f"❌ Channel selection error: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await query.message.reply_text(f"❌ Error: {str(e)}")
+            except:
+                pass
+
+    async def handle_thumbnail_image(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Handle thumbnail images with channel/video tagging
+        Supports both caption and reply methods
+        """
+        try:
+            if not update.message.photo:
+                return
+
+            # Get caption from message or reply
+            caption = update.message.caption or ""
+
+            if update.message.reply_to_message:
+                reply_text = update.message.reply_to_message.text or ""
+                caption = caption or reply_text
+
+            if not caption:
+                return  # Not a thumbnail tag
+
+            # Parse pattern: "{CHANNEL} video {NUM}"
+            match = re.match(r'(\w+)\s+video\s+(\d+)', caption, re.IGNORECASE)
+
+            if not match:
+                return  # Not a thumbnail tag
+
+            channel_code = match.group(1).upper()
+            video_number = int(match.group(2))
+
+            # Validate
+            valid_channels = ['BI', 'AFG', 'JIMMY', 'GYH', 'ANU', 'JM']
+            if channel_code not in valid_channels:
+                await update.message.reply_text(f"❌ Invalid channel: {channel_code}")
+                return
+
+            if video_number < 1 or video_number > 4:
+                await update.message.reply_text(f"❌ Invalid video number: {video_number} (must be 1-4)")
+                return
+
+            # Get largest photo
+            photo = update.message.photo[-1]
+            file_id = photo.file_id
+            file_unique_id = photo.file_unique_id
+
+            # Add to queue
+            success = self.supabase.add_thumbnail_to_queue(
+                file_id, channel_code, video_number, file_unique_id
+            )
+
+            if success:
+                await update.message.reply_text(
+                    f"✅ Thumbnail queued for **{channel_code} video {video_number}**\n\n"
+                    f"It will be processed automatically when the video is ready.",
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text("❌ Failed to queue thumbnail")
+
+        except Exception as e:
+            print(f"❌ Thumbnail handler error: {e}")
+            import traceback
+            traceback.print_exc()
+
 
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Text file documents handle kariye (supports channels and private chat)"""
@@ -5076,6 +5298,19 @@ class WorkingF5Bot:
             # Skip commands
             if script_text.startswith('/'):
                 return
+
+            # Check if this is a script submission (>100 chars, not a YouTube link)
+            if len(script_text) > 100 and not is_channel:
+                # Quick check if it's NOT a YouTube link
+                youtube_check_patterns = [
+                    r'youtube\.com', r'youtu\.be'
+                ]
+                is_youtube = any(re.search(pattern, script_text, re.IGNORECASE) for pattern in youtube_check_patterns)
+
+                if not is_youtube:
+                    # This looks like a script - show channel selection
+                    await self.handle_script_submission(update, context, script_text)
+                    return
 
             # Check for YouTube links (both videos AND channels)
             youtube_patterns = [
@@ -7236,6 +7471,10 @@ async def async_main():
     application.add_handler(CallbackQueryHandler(bot_instance.on_ref, pattern=r"^ref:"))
     application.add_handler(CallbackQueryHandler(bot_instance.on_youtube_mode, pattern=r"^yt_mode:"))
 
+    # Daily Video Organization handlers
+    application.add_handler(CallbackQueryHandler(bot_instance.handle_channel_selection, pattern=r"^dailyvid_channel_"))
+    application.add_handler(MessageHandler(filters.PHOTO, bot_instance.handle_thumbnail_image))
+
     # Message handlers (order matters!)
     application.add_handler(MessageHandler(filters.AUDIO | filters.VOICE | filters.Document.AUDIO, bot_instance.test_audio_handler))
     application.add_handler(MessageHandler(filters.Document.TXT, bot_instance.handle_document))
@@ -7255,6 +7494,14 @@ async def async_main():
         print(f"✅ Channel commands enabled: /set_ffmpeg")
 
     print("✅ All handlers registered")
+
+    # Start thumbnail processor in background
+    if bot_instance.video_organizer:
+        bot_token = os.getenv("BOT_TOKEN")
+        asyncio.create_task(
+            bot_instance.video_organizer.process_thumbnail_queue(bot_token)
+        )
+        print("✅ Thumbnail queue processor started")
 
     # Start the bot with proper async context
     print("🔄 Starting bot polling...")

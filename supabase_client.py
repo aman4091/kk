@@ -1222,3 +1222,392 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
         except Exception as e:
             print(f"❌ Error setting image folder: {e}")
             return False, str(e)
+
+    # =============================================================================
+    # DAILY VIDEO TRACKING METHODS
+    # =============================================================================
+
+    def create_video_tracking(self, date, channel_code: str, video_number: int, script_text: str = None) -> Optional[str]:
+        """
+        Create new video tracking entry
+
+        Args:
+            date: Target date (datetime.date or string YYYY-MM-DD)
+            channel_code: Channel code (BI, AFG, JIMMY, GYH, ANU, JM)
+            video_number: Video number (1-4)
+            script_text: Optional script content
+
+        Returns:
+            tracking_id (UUID) or None if failed
+        """
+        try:
+            if not self.is_connected():
+                print("❌ Database not connected")
+                return None
+
+            # Convert date to string if needed
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                date_str = str(date)
+
+            data = {
+                'date': date_str,
+                'channel_code': channel_code.upper(),
+                'video_number': video_number,
+                'script_text': script_text,
+                'status': 'pending'
+            }
+
+            result = self.client.table('daily_video_tracking').insert(data).execute()
+
+            if result.data:
+                tracking_id = result.data[0]['id']
+                print(f"✅ Created tracking: {channel_code} video {video_number} for {date_str}")
+                return tracking_id
+            return None
+
+        except Exception as e:
+            print(f"❌ Error creating video tracking: {e}")
+            return None
+
+    def update_video_tracking(self, tracking_id: str, updates: Dict[str, Any]) -> bool:
+        """
+        Update video tracking entry
+
+        Args:
+            tracking_id: UUID of tracking entry
+            updates: Dictionary of fields to update
+
+        Returns:
+            success: bool
+        """
+        try:
+            if not self.is_connected():
+                return False
+
+            result = self.client.table('daily_video_tracking')\
+                .update(updates)\
+                .eq('id', tracking_id)\
+                .execute()
+
+            return bool(result.data)
+
+        except Exception as e:
+            print(f"❌ Error updating tracking: {e}")
+            return False
+
+    def get_video_tracking(self, date, channel_code: str, video_number: int) -> Optional[Dict]:
+        """
+        Get video tracking entry by date/channel/number
+
+        Args:
+            date: Target date
+            channel_code: Channel code
+            video_number: Video number (1-4)
+
+        Returns:
+            tracking data dict or None
+        """
+        try:
+            if not self.is_connected():
+                return None
+
+            # Convert date to string
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                date_str = str(date)
+
+            result = self.client.table('daily_video_tracking')\
+                .select('*')\
+                .eq('date', date_str)\
+                .eq('channel_code', channel_code.upper())\
+                .eq('video_number', video_number)\
+                .execute()
+
+            if result.data:
+                return result.data[0]
+            return None
+
+        except Exception as e:
+            print(f"❌ Error getting tracking: {e}")
+            return None
+
+    def get_next_video_number(self, date, channel_code: str) -> int:
+        """
+        Get next available video number for channel on date (1-4)
+
+        Args:
+            date: Target date
+            channel_code: Channel code
+
+        Returns:
+            next video number (1-4) or 5 if all slots full
+        """
+        try:
+            if not self.is_connected():
+                return 1
+
+            # Convert date to string
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                date_str = str(date)
+
+            # Get all videos for this channel on this date
+            result = self.client.table('daily_video_tracking')\
+                .select('video_number')\
+                .eq('date', date_str)\
+                .eq('channel_code', channel_code.upper())\
+                .order('video_number', desc=True)\
+                .limit(1)\
+                .execute()
+
+            if result.data:
+                max_num = result.data[0]['video_number']
+                return max_num + 1
+            return 1
+
+        except Exception as e:
+            print(f"❌ Error getting next video number: {e}")
+            return 1
+
+    def get_incomplete_videos(self, date) -> List[Dict]:
+        """
+        Get all incomplete videos for a date
+
+        Args:
+            date: Target date
+
+        Returns:
+            List of incomplete video entries
+        """
+        try:
+            if not self.is_connected():
+                return []
+
+            # Convert date to string
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                date_str = str(date)
+
+            result = self.client.table('daily_video_tracking')\
+                .select('*')\
+                .eq('date', date_str)\
+                .neq('status', 'complete')\
+                .neq('status', 'deleted')\
+                .order('channel_code')\
+                .order('video_number')\
+                .execute()
+
+            return result.data if result.data else []
+
+        except Exception as e:
+            print(f"❌ Error getting incomplete videos: {e}")
+            return []
+
+    def get_date_completion_stats(self, date) -> Dict[str, int]:
+        """
+        Get completion statistics for a date
+
+        Returns:
+            Dict with total, completed, pending counts and percentage
+        """
+        try:
+            if not self.is_connected():
+                return {'total': 0, 'completed': 0, 'pending': 0, 'percentage': 0}
+
+            # Convert date to string
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                date_str = str(date)
+
+            result = self.client.table('daily_video_tracking')\
+                .select('status')\
+                .eq('date', date_str)\
+                .execute()
+
+            if not result.data:
+                return {'total': 0, 'completed': 0, 'pending': 0, 'percentage': 0}
+
+            total = len(result.data)
+            completed = len([v for v in result.data if v['status'] == 'complete'])
+            pending = total - completed
+            percentage = round((completed / total) * 100, 2) if total > 0 else 0
+
+            return {
+                'total': total,
+                'completed': completed,
+                'pending': pending,
+                'percentage': percentage
+            }
+
+        except Exception as e:
+            print(f"❌ Error getting completion stats: {e}")
+            return {'total': 0, 'completed': 0, 'pending': 0, 'percentage': 0}
+
+    # =============================================================================
+    # THUMBNAIL QUEUE METHODS
+    # =============================================================================
+
+    def add_thumbnail_to_queue(self, telegram_file_id: str, channel_code: str, video_number: int, telegram_file_unique_id: str = None) -> bool:
+        """
+        Add thumbnail to processing queue
+
+        Args:
+            telegram_file_id: Telegram file ID
+            channel_code: Channel code
+            video_number: Video number (1-4)
+            telegram_file_unique_id: Optional unique file ID
+
+        Returns:
+            success: bool
+        """
+        try:
+            if not self.is_connected():
+                return False
+
+            data = {
+                'telegram_file_id': telegram_file_id,
+                'telegram_file_unique_id': telegram_file_unique_id,
+                'channel_code': channel_code.upper(),
+                'video_number': video_number,
+                'processed': False
+            }
+
+            result = self.client.table('thumbnail_queue').insert(data).execute()
+
+            if result.data:
+                print(f"✅ Thumbnail queued: {channel_code} video {video_number}")
+                return True
+            return False
+
+        except Exception as e:
+            print(f"❌ Error adding thumbnail to queue: {e}")
+            return False
+
+    def get_pending_thumbnails(self) -> List[Dict]:
+        """
+        Get all unprocessed thumbnails from queue
+
+        Returns:
+            List of thumbnail entries
+        """
+        try:
+            if not self.is_connected():
+                return []
+
+            result = self.client.table('thumbnail_queue')\
+                .select('*')\
+                .eq('processed', False)\
+                .order('created_at')\
+                .execute()
+
+            return result.data if result.data else []
+
+        except Exception as e:
+            print(f"❌ Error getting pending thumbnails: {e}")
+            return []
+
+    def mark_thumbnail_processed(self, thumbnail_id: str, gdrive_file_id: str = None) -> bool:
+        """
+        Mark thumbnail as processed
+
+        Args:
+            thumbnail_id: UUID of thumbnail entry
+            gdrive_file_id: Optional GDrive file ID after upload
+
+        Returns:
+            success: bool
+        """
+        try:
+            if not self.is_connected():
+                return False
+
+            updates = {
+                'processed': True,
+                'processed_at': datetime.now().isoformat()
+            }
+
+            if gdrive_file_id:
+                updates['gdrive_file_id'] = gdrive_file_id
+
+            result = self.client.table('thumbnail_queue')\
+                .update(updates)\
+                .eq('id', thumbnail_id)\
+                .execute()
+
+            return bool(result.data)
+
+        except Exception as e:
+            print(f"❌ Error marking thumbnail processed: {e}")
+            return False
+
+    def find_video_for_thumbnail(self, channel_code: str, video_number: int, days_back: int = 7) -> Optional[Dict]:
+        """
+        Find video entry for thumbnail (searches within last N days)
+
+        Args:
+            channel_code: Channel code
+            video_number: Video number
+            days_back: Days to search back (default 7)
+
+        Returns:
+            Video tracking entry or None
+        """
+        try:
+            if not self.is_connected():
+                return None
+
+            # Calculate cutoff date
+            cutoff_date = (datetime.now() - timedelta(days=days_back)).date()
+            cutoff_str = cutoff_date.strftime('%Y-%m-%d')
+
+            result = self.client.table('daily_video_tracking')\
+                .select('*')\
+                .eq('channel_code', channel_code.upper())\
+                .eq('video_number', video_number)\
+                .gte('date', cutoff_str)\
+                .order('date', desc=True)\
+                .limit(1)\
+                .execute()
+
+            if result.data:
+                return result.data[0]
+            return None
+
+        except Exception as e:
+            print(f"❌ Error finding video for thumbnail: {e}")
+            return None
+
+    def get_old_videos(self, days_old: int = 7) -> List[Dict]:
+        """
+        Get videos older than N days (for cleanup)
+
+        Args:
+            days_old: Age threshold in days
+
+        Returns:
+            List of old video entries
+        """
+        try:
+            if not self.is_connected():
+                return []
+
+            cutoff_date = (datetime.now() - timedelta(days=days_old)).date()
+            cutoff_str = cutoff_date.strftime('%Y-%m-%d')
+
+            result = self.client.table('daily_video_tracking')\
+                .select('*')\
+                .lt('date', cutoff_str)\
+                .neq('status', 'deleted')\
+                .execute()
+
+            return result.data if result.data else []
+
+        except Exception as e:
+            print(f"❌ Error getting old videos: {e}")
+            return []
