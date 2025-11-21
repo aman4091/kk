@@ -56,12 +56,9 @@ class VideoQueueManager:
         Returns:
             Tuple[success: bool, job_id: str or None, queue_audio_id: str or None]
         """
-        # Generate unique job_id (use counter if available, otherwise timestamp)
-        import time
-        if counter is not None and counter > 0:
-            job_id = str(counter)
-        else:
-            job_id = str(int(time.time()))
+        # Generate unique job_id using UUID
+        import uuid
+        job_id = str(uuid.uuid4())[:12]
 
         try:
             print(f"\n{'='*60}")
