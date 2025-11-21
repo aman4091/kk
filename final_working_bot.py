@@ -5071,6 +5071,91 @@ class WorkingF5Bot:
             # Existing delivery code continues (will trigger video queue automatically)
             await self.send_outputs_by_mode(context, chat_id, output_files, script_text, "Script Audio")
 
+            # VIDEO QUEUE CREATION (after audio delivery)
+            video_settings = None
+            if self.supabase.is_connected():
+                video_settings = self.supabase.get_video_settings(chat_id)
+
+            if video_settings and video_settings.get('video_enabled', False):
+                try:
+                    print(f"✅ Video ENABLED for chat {chat_id} - Creating queue job")
+                    await context.bot.send_message(chat_id, "📋 Queuing video for processing on local PC...")
+
+                    # Lazy load queue manager
+                    if not hasattr(self, 'video_queue_manager') or not self.video_queue_manager:
+                        from video_queue_manager import VideoQueueManager
+                        from gdrive_manager import GDriveImageManager
+                        gdrive_mgr = GDriveImageManager()
+                        self.video_queue_manager = VideoQueueManager(self.supabase, gdrive_mgr)
+                        print("✅ VideoQueueManager loaded")
+
+                    if not hasattr(self, 'gdrive_manager') or not self.gdrive_manager:
+                        from gdrive_manager import GDriveImageManager
+                        self.gdrive_manager = GDriveImageManager()
+
+                    # Get audio file path from output_files
+                    audio_path = None
+                    for file_info in output_files:
+                        if isinstance(file_info, str) and file_info.endswith('.wav'):
+                            audio_path = file_info
+                            break
+
+                    if not audio_path:
+                        await context.bot.send_message(chat_id, "⚠️ Audio file not found for video queue")
+                    else:
+                        # Fetch image
+                        image_folder_id = video_settings.get('gdrive_image_folder_id')
+                        if not image_folder_id:
+                            await context.bot.send_message(chat_id, "⚠️ Video folder not configured")
+                        else:
+                            await context.bot.send_message(chat_id, "🖼️ Fetching image...")
+                            image_path, image_file_id = await asyncio.to_thread(
+                                self.gdrive_manager.fetch_next_image_from_folder,
+                                image_folder_id
+                            )
+
+                            if image_path:
+                                subtitle_style = video_settings.get('subtitle_style') or ''
+                                await context.bot.send_message(chat_id, "📤 Uploading to queue...")
+
+                                # Get counter from metadata or use default
+                                counter = context.user_data.get('current_video_num', 1)
+
+                                success, job_id = await self.video_queue_manager.create_video_job(
+                                    audio_path=audio_path,
+                                    image_path=image_path,
+                                    counter=counter,
+                                    chat_id=chat_id,
+                                    subtitle_style=subtitle_style,
+                                    channel_code=channel_code,
+                                    video_number=video_num,
+                                    target_date=tomorrow.strftime('%Y-%m-%d')
+                                )
+
+                                if success:
+                                    if image_file_id:
+                                        await asyncio.to_thread(
+                                            self.gdrive_manager.delete_image_from_gdrive,
+                                            image_file_id
+                                        )
+
+                                    pending = self.video_queue_manager.get_pending_jobs_count()
+                                    message_text = f"✅ **Video Queued!** (Job #{job_id})\n\n📋 Queue: {pending}\n⏱️ Est: 40-60 min\n📢 Notification when ready!"
+                                    await context.bot.send_message(chat_id, message_text, parse_mode="Markdown")
+                                    print(f"✅ Job created: {job_id}")
+                                else:
+                                    await context.bot.send_message(chat_id, "❌ Queue failed")
+                            else:
+                                await context.bot.send_message(chat_id, "❌ No images")
+
+                except Exception as video_queue_error:
+                    print(f"❌ Video queue error: {video_queue_error}")
+                    import traceback
+                    traceback.print_exc()
+                    await context.bot.send_message(chat_id, f"⚠️ Video queue error: {str(video_queue_error)[:200]}")
+            else:
+                print(f"⚠️ Video DISABLED for chat {chat_id}")
+
         except Exception as e:
             print(f"❌ Channel selection error: {e}")
             import traceback
