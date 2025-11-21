@@ -5121,6 +5121,8 @@ class WorkingF5Bot:
                                 # Get counter from metadata or use default
                                 counter = context.user_data.get('current_video_num', 1)
 
+                                # Pass daily video metadata to video queue
+                                # Local worker will use this for post-process organization
                                 success, job_id = await self.video_queue_manager.create_video_job(
                                     audio_path=audio_path,
                                     image_path=image_path,
