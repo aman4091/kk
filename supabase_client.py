@@ -1373,7 +1373,7 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             print(f"❌ Error getting next video number: {e}")
             return 1
 
-    def delete_videos_by_date(self, date, channel_code: str = None) -> bool:
+    def delete_videos_by_date(self, date, channel_code: str = None) -> tuple[bool, list]:
         """
         Delete all video tracking entries for a specific date (and optionally channel)
 
@@ -1382,12 +1382,12 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             channel_code: Optional channel code (if None, deletes all channels for date)
 
         Returns:
-            success: bool
+            tuple: (success: bool, deleted_entries: list of dicts)
         """
         try:
             if not self.is_connected():
                 print("❌ Database not connected")
-                return False
+                return False, []
 
             # Convert date to string
             if hasattr(date, 'strftime'):
@@ -1395,7 +1395,16 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             else:
                 date_str = str(date)
 
-            # Build query
+            # First, fetch entries to get folder IDs before deletion
+            fetch_query = self.client.table('daily_video_tracking').select('*')
+            fetch_query = fetch_query.eq('date', date_str)
+            if channel_code:
+                fetch_query = fetch_query.eq('channel_code', channel_code.upper())
+
+            fetch_result = fetch_query.execute()
+            deleted_entries = fetch_result.data if fetch_result.data else []
+
+            # Build delete query
             query = self.client.table('daily_video_tracking').delete()
             query = query.eq('date', date_str)
 
@@ -1405,14 +1414,14 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             result = query.execute()
 
             if channel_code:
-                print(f"✅ Deleted {channel_code} videos for {date_str}")
+                print(f"✅ Deleted {channel_code} videos for {date_str} (count: {len(deleted_entries)})")
             else:
-                print(f"✅ Deleted all videos for {date_str}")
-            return True
+                print(f"✅ Deleted all videos for {date_str} (count: {len(deleted_entries)})")
+            return True, deleted_entries
 
         except Exception as e:
             print(f"❌ Error deleting videos: {e}")
-            return False
+            return False, []
 
     def get_incomplete_videos(self, date) -> List[Dict]:
         """

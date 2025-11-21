@@ -3384,21 +3384,39 @@ class WorkingF5Bot:
                 )
                 return
 
-            # Delete videos
-            success = self.supabase.delete_videos_by_date(target_date, channel_code)
+            # Delete from database (also returns deleted entries for GDrive cleanup)
+            success, deleted_entries = self.supabase.delete_videos_by_date(target_date, channel_code)
 
             if success:
+                # Show initial confirmation
+                count = len(deleted_entries)
                 if channel_code:
-                    await update.message.reply_text(
-                        f"✅ Reset complete!\n\n"
-                        f"🗑️ Deleted all {channel_code} videos for {date_str}"
-                    )
+                    msg = f"✅ Database cleared: {count} {channel_code} video(s)\n\n"
                 else:
-                    await update.message.reply_text(
-                        f"✅ Reset complete!\n\n"
-                        f"🗑️ Deleted all videos for {date_str}\n"
-                        f"(All channels cleared)"
-                    )
+                    msg = f"✅ Database cleared: {count} video(s)\n\n"
+
+                msg += "🗑️ Deleting Google Drive files..."
+                status_msg = await update.message.reply_text(msg)
+
+                # Delete organized folders from Google Drive
+                deleted_count = 0
+                for entry in deleted_entries:
+                    folder_id = entry.get('organized_folder_id')
+                    if folder_id and self.gdrive_manager:
+                        if self.gdrive_manager.delete_folder(folder_id):
+                            deleted_count += 1
+
+                # Final confirmation
+                if deleted_count > 0:
+                    final_msg = msg.replace("Deleting Google Drive files...",
+                                          f"Deleted {deleted_count} folder(s) from Google Drive\n\n"
+                                          f"✅ Reset complete!")
+                else:
+                    final_msg = msg.replace("Deleting Google Drive files...",
+                                          "⚠️ No Google Drive folders found\n\n"
+                                          f"✅ Database reset complete!")
+
+                await status_msg.edit_text(final_msg)
             else:
                 await update.message.reply_text("❌ Reset failed. Check logs.")
 
