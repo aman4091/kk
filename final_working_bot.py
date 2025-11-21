@@ -186,10 +186,13 @@ class WorkingF5Bot:
             if self.gdrive_manager is None:
                 self.gdrive_manager = GDriveImageManager()
             if self.gdrive_manager and self.supabase.is_connected():
-                self.video_organizer = create_organizer(self.supabase, self.gdrive_manager)
-                print("✅ Daily video organizer initialized")
+                parent_folder_id = os.getenv('DAILY_VIDEO_PARENT_FOLDER', '1ZKnCa-7ieNt3bLhI6f6mCZBmyAP0-dnF')
+                self.video_organizer = create_organizer(self.supabase, self.gdrive_manager, parent_folder_id)
+                print(f"✅ Daily video organizer initialized (folder: {parent_folder_id})")
         except Exception as e:
             print(f"⚠️ Video organizer initialization failed: {e}")
+            import traceback
+            traceback.print_exc()
 
         # Multi-chat configuration (Aman & Anu chats)
         self.active_chats = {
@@ -5030,36 +5033,14 @@ class WorkingF5Bot:
                 await context.bot.send_message(chat_id, f"❌ Audio generation failed")
                 return
 
-            # POST-PROCESS: Organize audio (NEW!)
-            if self.video_organizer and output_files:
-                # Get audio GDrive ID from output_files
-                audio_gdrive_id = None
-                for file_info in output_files:
-                    if isinstance(file_info, dict) and 'gdrive_id' in file_info:
-                        audio_gdrive_id = file_info['gdrive_id']
-                        break
-
-                if audio_gdrive_id:
-                    await context.bot.send_message(chat_id, "📦 Organizing files...")
-
-                    success_org = await self.video_organizer.organize_audio(
-                        tracking_id,
-                        audio_gdrive_id,
-                        tomorrow,
-                        channel_code,
-                        video_num,
-                        script_text
-                    )
-
-                    if success_org:
-                        await context.bot.send_message(
-                            chat_id,
-                            f"✅ Audio organized!\n"
-                            f"📁 {tomorrow}/{channel_code}/video_{video_num}/\n\n"
-                            f"🎬 Video generation will start automatically."
-                        )
-                    else:
-                        await context.bot.send_message(chat_id, "⚠️ Organization failed (non-critical)")
+            # Store tracking info for organization later (after GDrive upload)
+            context.user_data['pending_organization'] = {
+                'tracking_id': tracking_id,
+                'channel_code': channel_code,
+                'video_num': video_num,
+                'tomorrow': tomorrow,
+                'script_text': script_text
+            }
 
             # Store metadata in context for video generation
             context.user_data['daily_video_metadata'] = {
@@ -6964,6 +6945,33 @@ class WorkingF5Bot:
                             text=f"✅ Uploaded to Google Drive\n📁 File ID: `{gdrive_file_id}`",
                             parse_mode="Markdown"
                         )
+
+                        # Check if this is a daily video - organize audio after upload
+                        pending_org = context.user_data.get('pending_organization')
+                        if pending_org and self.video_organizer:
+                            await context.bot.send_message(chat_id, "📦 Organizing files...")
+
+                            success_org = await self.video_organizer.organize_audio(
+                                pending_org['tracking_id'],
+                                gdrive_file_id,
+                                pending_org['tomorrow'],
+                                pending_org['channel_code'],
+                                pending_org['video_num'],
+                                pending_org['script_text']
+                            )
+
+                            if success_org:
+                                await context.bot.send_message(
+                                    chat_id,
+                                    f"✅ Audio organized!\n"
+                                    f"📁 {pending_org['tomorrow']}/{pending_org['channel_code']}/video_{pending_org['video_num']}/\n\n"
+                                    f"🎬 Video generation will start automatically."
+                                )
+                                # Clear pending organization
+                                context.user_data.pop('pending_organization', None)
+                            else:
+                                await context.bot.send_message(chat_id, "⚠️ Organization failed (non-critical)")
+
                 except Exception as e:
                     print(f"⚠️ Google Drive upload skipped: {e}")
 

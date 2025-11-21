@@ -473,8 +473,10 @@ class LocalVideoWorker:
                 if channel and video_num and target_date and gdrive_file_id:
                     print(f"📦 Organizing video to daily folder...")
                     from daily_video_organizer import create_organizer
+                    import os
 
-                    organizer = create_organizer(self.supabase, self.gdrive)
+                    parent_folder_id = os.getenv('DAILY_VIDEO_PARENT_FOLDER', '1ZKnCa-7ieNt3bLhI6f6mCZBmyAP0-dnF')
+                    organizer = create_organizer(self.supabase, self.gdrive, parent_folder_id)
 
                     # Parse date if string
                     if isinstance(target_date, str):
@@ -486,11 +488,20 @@ class LocalVideoWorker:
                         target_date,
                         channel,
                         video_num,
-                        delete_original=True  # Delete from output folder
+                        delete_original=True  # Delete video from output folder
                     )
 
                     if success:
                         print(f"✅ Video organized to daily folder and original deleted")
+
+                        # Also delete original audio from Audio folder
+                        if audio_gdrive_id:
+                            print(f"🗑️ Deleting original audio from Audio folder...")
+                            audio_delete_success = self.gdrive.delete_image_from_gdrive(audio_gdrive_id)
+                            if audio_delete_success:
+                                print(f"✅ Original audio deleted")
+                            else:
+                                print(f"⚠️ Audio deletion failed (non-critical)")
                     else:
                         print(f"⚠️ Video organization failed (non-critical)")
                 else:
