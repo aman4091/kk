@@ -7914,6 +7914,9 @@ async def async_main():
     application.add_handler(CallbackQueryHandler(bot_instance.handle_channel_selection, pattern=r"^dailyvid_channel_"))
     application.add_handler(MessageHandler(filters.PHOTO, bot_instance.handle_thumbnail_image))
 
+    # Generic callback handler (catch-all for callbacks not matched above)
+    application.add_handler(CallbackQueryHandler(bot_instance.handle_callback))
+
     # Message handlers (order matters!)
     application.add_handler(MessageHandler(filters.AUDIO | filters.VOICE | filters.Document.AUDIO, bot_instance.test_audio_handler))
     application.add_handler(MessageHandler(filters.Document.TXT, bot_instance.handle_document))
