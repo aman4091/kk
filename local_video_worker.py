@@ -448,10 +448,27 @@ class LocalVideoWorker:
 
             # 6.5. POST-PROCESS: Organize video to daily folder (if metadata available)
             try:
-                # Check if this is a daily video job (has channel/video metadata)
-                channel = job.get('channel_code')
-                video_num = job.get('video_number')
-                target_date = job.get('target_date')
+                # Fetch metadata from daily_video_tracking using audio_gdrive_id
+                channel = None
+                video_num = None
+                target_date = None
+                tracking_id = None
+
+                # Query daily_video_tracking table for matching audio
+                audio_gdrive_id = job.get('audio_gdrive_id')
+                if audio_gdrive_id:
+                    result = self.supabase.client.table('daily_video_tracking')\
+                        .select('*')\
+                        .eq('audio_gdrive_id', audio_gdrive_id)\
+                        .execute()
+
+                    if result.data and len(result.data) > 0:
+                        video_entry = result.data[0]
+                        channel = video_entry.get('channel_code')
+                        video_num = video_entry.get('video_number')
+                        target_date = video_entry.get('date')
+                        tracking_id = video_entry.get('id')
+                        print(f"📋 Found daily video metadata: {channel} video {video_num} for {target_date}")
 
                 if channel and video_num and target_date and gdrive_file_id:
                     print(f"📦 Organizing video to daily folder...")
