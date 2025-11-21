@@ -1,0 +1,76 @@
+# Telegram Bot Commands
+
+## Basic Commands
+/start - Start bot and show welcome message with inline menu
+/settings - Open settings menu with all configuration options
+/test - Run bot test to check if everything is working
+
+## Audio Generation
+/set_prompt <text> - Set DeepSeek prompt for script processing
+/set_youtube_prompt <text> - Set prompt for YouTube video processing
+/set_chunk_size <number> - Set chunk size for audio processing
+/set_ffmpeg <path> - Set FFmpeg binary path
+
+## Video Generation
+/enable_video - Enable automatic video generation after audio
+/disable_video - Disable automatic video generation
+/video_status - Check if video generation is enabled
+/set_subtitle_style <style> - Set ASS subtitle style for videos
+/set_video_folder <folder_id> - Set Google Drive folder for video images
+/setfolder - Select Google Drive folder for images using inline keyboard
+
+## Daily Video Management
+/script - View existing scripts with inline selection (Channel → Date → Slot)
+/reset_daily_videos <date> [channel] - Delete videos for specific date (database + GDrive)
+  Examples: /reset_daily_videos 2025-11-22
+            /reset_daily_videos 2025-11-22 JIMMY
+
+## YouTube Channel Automation
+/set_supabase_url <url> - Set Supabase database URL
+/set_supabase_key <key> - Set Supabase anonymous key
+/set_youtube_key <key> - Set YouTube Data API key
+/add_supadata_key <key> - Add Supadata API key for transcription
+/set_deepseek_key <key> - Set DeepSeek API key
+/set_channel_prompt <channel> <prompt> - Set custom prompt for specific channel
+/list_keys - List all configured API keys
+/set_video_count <count> - Set number of videos to process per channel
+
+## Google Drive Batch Processing
+/process_gdrive_scripts - Process all .txt files from Google Drive folder
+
+## Reference Audio Management
+/set_default_reference - Set default reference audio file
+/get_default_reference - Get current default reference audio info
+/ref_status - Check reference audio status
+/set_ref - Set reference audio using inline menu
+
+## AI Provider Configuration
+/setai - Select AI provider (OpenRouter/Gemini) using inline keyboard
+/ai_status - Check current AI provider and model
+/set_gemini_prompt <text> - Set Gemini system prompt
+/set_openrouter_model <model> - Set OpenRouter model
+  Examples: /set_openrouter_model deepseek/deepseek-chat
+            /set_openrouter_model anthropic/claude-3.5-sonnet
+
+## System Management
+/start_processing - Start YouTube channel processing
+/stop_processing - Stop ongoing processing
+/update_ytdlp - Update yt-dlp to latest version
+/power - Power management menu (start/stop processing)
+/links - Show all completed files with download links
+
+## Legacy/Internal Commands
+/set_jesus_prompt <text> - Set Jesus-themed prompt
+/set_nature_prompt <text> - Set nature-themed prompt
+/set_leonardo_url <url> - Set Leonardo AI URL
+/set_title_prompt1 <text> - Set title generation prompt 1
+/set_title_prompt2 <text> - Set title generation prompt 2
+/set_title_prompt3 <text> - Set title generation prompt 3
+/set_title_prompt_10more <text> - Set extended title prompt
+/ref_back - Go back in reference audio menu
+
+## Usage Notes
+- Most commands accessible via /settings menu for better organization
+- Commands work in both private chat and configured channels
+- Some commands require arguments, others show inline keyboards
+- Video generation requires local worker PC running
