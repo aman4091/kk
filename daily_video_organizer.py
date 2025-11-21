@@ -153,7 +153,7 @@ class DailyVideoOrganizer:
             # Update database
             print(f"💾 Updating database...")
             updates = {
-                'audio_gdrive_id': new_audio_id,
+                'audio_gdrive_id': audio_gdrive_id,  # Keep ORIGINAL audio ID for worker query
                 'script_gdrive_id': script_id,
                 'organized_folder_id': video_folder_id,
                 'status': 'audio_done'
