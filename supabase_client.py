@@ -1373,6 +1373,47 @@ CREATE TABLE IF NOT EXISTS default_reference_audio (
             print(f"❌ Error getting next video number: {e}")
             return 1
 
+    def delete_videos_by_date(self, date, channel_code: str = None) -> bool:
+        """
+        Delete all video tracking entries for a specific date (and optionally channel)
+
+        Args:
+            date: Target date (datetime.date or string YYYY-MM-DD)
+            channel_code: Optional channel code (if None, deletes all channels for date)
+
+        Returns:
+            success: bool
+        """
+        try:
+            if not self.is_connected():
+                print("❌ Database not connected")
+                return False
+
+            # Convert date to string
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                date_str = str(date)
+
+            # Build query
+            query = self.client.table('daily_video_tracking').delete()
+            query = query.eq('date', date_str)
+
+            if channel_code:
+                query = query.eq('channel_code', channel_code.upper())
+
+            result = query.execute()
+
+            if channel_code:
+                print(f"✅ Deleted {channel_code} videos for {date_str}")
+            else:
+                print(f"✅ Deleted all videos for {date_str}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Error deleting videos: {e}")
+            return False
+
     def get_incomplete_videos(self, date) -> List[Dict]:
         """
         Get all incomplete videos for a date

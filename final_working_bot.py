@@ -3357,6 +3357,54 @@ class WorkingF5Bot:
         except Exception as e:
             await update.message.reply_text(f"❌ Update error: {str(e)}")
 
+    async def reset_daily_videos_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Reset/delete all videos for a specific date"""
+        try:
+            if not context.args:
+                await update.message.reply_text(
+                    "❓ Usage: /reset_daily_videos <date> [channel]\n\n"
+                    "📅 Examples:\n"
+                    "• /reset_daily_videos 2025-11-22\n"
+                    "• /reset_daily_videos 2025-11-22 JIMMY\n\n"
+                    "⚠️ This will DELETE all video tracking for that date!"
+                )
+                return
+
+            date_str = context.args[0]
+            channel_code = context.args[1].upper() if len(context.args) > 1 else None
+
+            # Validate date format
+            try:
+                from datetime import datetime
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Invalid date format!\n\n"
+                    "Use: YYYY-MM-DD (e.g., 2025-11-22)"
+                )
+                return
+
+            # Delete videos
+            success = self.supabase.delete_videos_by_date(target_date, channel_code)
+
+            if success:
+                if channel_code:
+                    await update.message.reply_text(
+                        f"✅ Reset complete!\n\n"
+                        f"🗑️ Deleted all {channel_code} videos for {date_str}"
+                    )
+                else:
+                    await update.message.reply_text(
+                        f"✅ Reset complete!\n\n"
+                        f"🗑️ Deleted all videos for {date_str}\n"
+                        f"(All channels cleared)"
+                    )
+            else:
+                await update.message.reply_text("❌ Reset failed. Check logs.")
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
     async def set_openrouter_model_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Change OpenRouter model via Telegram"""
         try:
@@ -4991,22 +5039,37 @@ class WorkingF5Bot:
                 await query.edit_message_text("❌ Script not found. Please send script again.")
                 return
 
-            # Get tomorrow's date
-            tomorrow = (datetime.now() + timedelta(days=1)).date()
+            # Find next available date (check next 7 days)
+            target_date = None
+            video_num = None
 
-            # Get next available video number
-            video_num = self.supabase.get_next_video_number(tomorrow, channel_code)
+            for days_ahead in range(1, 8):  # Check tomorrow through next 7 days
+                check_date = (datetime.now() + timedelta(days=days_ahead)).date()
+                available_num = self.supabase.get_next_video_number(check_date, channel_code)
 
-            if video_num > 4:
+                if available_num <= 4:
+                    # Found available slot!
+                    target_date = check_date
+                    video_num = available_num
+                    break
+
+            if not target_date or video_num > 4:
                 await query.edit_message_text(
-                    f"❌ {channel_code} is full for {tomorrow}!\n"
-                    f"All 4 video slots are taken."
+                    f"❌ {channel_code} is full for next 7 days!\n"
+                    f"All slots are taken. Use /reset_daily_videos to clear a date."
                 )
                 return
 
+            # Show which date was selected
+            if (datetime.now() + timedelta(days=1)).date() == target_date:
+                date_info = f"📅 Tomorrow ({target_date})"
+            else:
+                days_diff = (target_date - datetime.now().date()).days
+                date_info = f"📅 {target_date} (+{days_diff} days)"
+
             # Create tracking entry
             tracking_id = self.supabase.create_video_tracking(
-                tomorrow, channel_code, video_num, script_text
+                target_date, channel_code, video_num, script_text
             )
 
             if not tracking_id:
@@ -5017,10 +5080,11 @@ class WorkingF5Bot:
             context.user_data['current_tracking_id'] = tracking_id
             context.user_data['current_channel'] = channel_code
             context.user_data['current_video_num'] = video_num
-            context.user_data['current_date'] = tomorrow
+            context.user_data['current_date'] = target_date
 
             await query.edit_message_text(
-                f"✅ Processing **{channel_code} video {video_num}** for {tomorrow}\n\n"
+                f"✅ Processing **{channel_code} video {video_num}**\n"
+                f"{date_info}\n\n"
                 f"🎵 Generating audio...",
                 parse_mode="Markdown"
             )
@@ -5038,7 +5102,7 @@ class WorkingF5Bot:
                 'tracking_id': tracking_id,
                 'channel_code': channel_code,
                 'video_num': video_num,
-                'tomorrow': tomorrow,
+                'tomorrow': target_date,
                 'script_text': script_text
             }
 
@@ -5046,7 +5110,7 @@ class WorkingF5Bot:
             context.user_data['daily_video_metadata'] = {
                 'channel_code': channel_code,
                 'video_number': video_num,
-                'target_date': tomorrow.strftime('%Y-%m-%d')
+                'target_date': target_date.strftime('%Y-%m-%d')
             }
 
             # Existing delivery code continues (will trigger video queue automatically)
@@ -7584,6 +7648,9 @@ async def async_main():
     application.add_handler(CommandHandler("video_status", bot_instance.video_status_command))
     application.add_handler(CommandHandler("set_subtitle_style", bot_instance.set_subtitle_style_command))
     application.add_handler(CommandHandler("set_video_folder", bot_instance.set_video_folder_command))
+
+    # Daily Video Management
+    application.add_handler(CommandHandler("reset_daily_videos", bot_instance.reset_daily_videos_command))
 
     # All other commands accessible via Settings menu:
     # - Test: Settings > Debug Tools > Run Test
