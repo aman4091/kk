@@ -5118,8 +5118,8 @@ class WorkingF5Bot:
                                 subtitle_style = video_settings.get('subtitle_style') or ''
                                 await context.bot.send_message(chat_id, "📤 Uploading to queue...")
 
-                                # Get counter from metadata or use default
-                                counter = context.user_data.get('current_video_num', 1)
+                                # Get unique counter from global counter (atomic increment)
+                                counter = self.supabase.increment_counter()
 
                                 # Create video job (standard queue)
                                 success, job_id = await self.video_queue_manager.create_video_job(
