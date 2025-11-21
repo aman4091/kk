@@ -5061,7 +5061,14 @@ class WorkingF5Bot:
                     else:
                         await context.bot.send_message(chat_id, "⚠️ Organization failed (non-critical)")
 
-            # Existing delivery code continues...
+            # Store metadata in context for video generation
+            context.user_data['daily_video_metadata'] = {
+                'channel_code': channel_code,
+                'video_number': video_num,
+                'target_date': tomorrow.strftime('%Y-%m-%d')
+            }
+
+            # Existing delivery code continues (will trigger video queue automatically)
             await self.send_outputs_by_mode(context, chat_id, output_files, script_text, "Script Audio")
 
         except Exception as e:
@@ -5223,12 +5230,6 @@ class WorkingF5Bot:
 
             print(f"✅ Text file loaded: {len(script_content)} characters from {document.file_name}")
 
-            # Check if this is a script for daily video (not from channel)
-            if not is_channel and len(script_content) > 100:
-                # Show inline keyboard for channel selection
-                await self.handle_script_submission(update, context, script_content)
-                return
-
             # COMPLETELY SILENT queuing - NO messages at all
             # Directly add to queue without calling process_text messaging
             timestamp = int(time.time() * 1000)
@@ -5316,7 +5317,7 @@ class WorkingF5Bot:
                 if not is_youtube:
                     # This looks like a script - show channel selection
                     await self.handle_script_submission(update, context, script_text)
-                    return
+                    # Don't return - let normal flow continue for video queue
 
             # Check for YouTube links (both videos AND channels)
             youtube_patterns = [
