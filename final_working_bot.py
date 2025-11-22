@@ -4,7 +4,7 @@ import json
 import asyncio
 import logging
 import requests
-import torch
+# import torch  # Not needed on Contabo - audio queue worker uses it
 from pathlib import Path
 import telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -29,6 +29,9 @@ from gdrive_manager import GDriveImageManager
 
 # Daily video organization import
 from daily_video_organizer import create_organizer
+
+# Audio queue import
+from audio_queue_manager import AudioQueueManager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -191,6 +194,19 @@ class WorkingF5Bot:
                 print(f"✅ Daily video organizer initialized (folder: {parent_folder_id})")
         except Exception as e:
             print(f"⚠️ Video organizer initialization failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # Initialize Audio Queue Manager
+        self.audio_queue_manager = None
+        try:
+            if self.gdrive_manager is None:
+                self.gdrive_manager = GDriveImageManager()
+            if self.gdrive_manager and self.supabase.is_connected():
+                self.audio_queue_manager = AudioQueueManager(self.supabase, self.gdrive_manager)
+                print(f"✅ Audio queue manager initialized")
+        except Exception as e:
+            print(f"⚠️ Audio queue manager initialization failed: {e}")
             import traceback
             traceback.print_exc()
 
@@ -612,14 +628,22 @@ class WorkingF5Bot:
                 except Exception as e2:
                     print(f"❌ Failed to send script as message: {e2}")
             
-            # Step 5: Generate audio with F5-TTS
+            # Step 5: Generate audio with F5-TTS (will use queue automatically)
             await send_message("🎵 Generating audio...")
-            success, output_files = await self.generate_audio_f5(processed_script, chat_id)
-            
+            success, result = await self.generate_audio_f5(processed_script, chat_id)
+
             if success:
-                await self.send_outputs_by_mode(context, chat_id, output_files, processed_script, "YouTube Audio")
+                # Check if it's queued or has output files
+                if isinstance(result, str) and result.startswith("queued:"):
+                    job_id = result.split(":", 1)[1]
+                    await send_message(f"✅ Audio job queued: {job_id[:12]}...\nWorker will process and notify you when ready.")
+                    output_files = None
+                else:
+                    output_files = result
+                    await self.send_outputs_by_mode(context, chat_id, output_files, processed_script, "YouTube Audio")
             else:
-                await send_message(f"❌ Audio generation failed: {output_files}")
+                await send_message(f"❌ Audio generation failed: {result}")
+                output_files = None
             
             # Step 6: Cleanup everything except audio and script
             await self.cleanup_processing_files(exclude_scripts=True)
@@ -1711,13 +1735,14 @@ class WorkingF5Bot:
             print(f"Cleanup error: {e}")
 
     def init_f5_tts(self):
-        """F5-TTS model initialize kariye"""
+        """F5-TTS model initialize kariye - DISABLED (using audio queue now)"""
         try:
-            print("🔄 Loading F5-TTS API...")
-            from f5_tts.api import F5TTS
-            
-            self.f5_model = F5TTS()
-            print("✅ F5-TTS API loaded successfully!")
+            print("ℹ️  F5-TTS disabled on Contabo - using audio queue worker on Vastai")
+            self.f5_model = None
+            # F5-TTS will run on Vastai worker, not on this bot
+            # from f5_tts.api import F5TTS
+            # self.f5_model = F5TTS()
+            print("✅ Audio queue mode enabled")
             
         except Exception as e:
             print(f"❌ F5-TTS initialization error: {e}")
@@ -6298,7 +6323,36 @@ class WorkingF5Bot:
                 pass
     
     async def generate_audio_f5(self, script_text, chat_id=None, input_filename=None, channel_shortform=None, audio_counter=None):
-        """F5-TTS API with PC-like parameters and processing"""
+        """REDIRECTED TO AUDIO QUEUE - Audio generation now happens on Vastai worker"""
+        try:
+            print(f"🎙️  Audio queue mode - creating job...")
+            print(f"📝 Script length: {len(script_text)} characters")
+
+            # Create audio job in queue instead of generating locally
+            success, job_id = await self.audio_queue_manager.create_audio_job(
+                script_text=script_text,
+                chat_id=chat_id,
+                audio_counter=audio_counter,
+                channel_shortform=channel_shortform,
+                priority=0
+            )
+
+            if success:
+                print(f"✅ Audio job queued: {job_id[:12]}...")
+                # Return success but no local files (will be generated by worker)
+                return True, f"queued:{job_id}"
+            else:
+                print(f"❌ Failed to queue audio job")
+                return False, "Failed to create audio job in queue"
+
+        except Exception as e:
+            error_msg = f"Audio queue error: {str(e)}"
+            print(f"❌ {error_msg}")
+            return False, error_msg
+
+    # OLD F5-TTS LOCAL GENERATION - DISABLED
+    async def generate_audio_f5_LOCAL_DISABLED(self, script_text, chat_id=None, input_filename=None, channel_shortform=None, audio_counter=None):
+        """OLD METHOD - F5-TTS API with PC-like parameters and processing - NOW DISABLED"""
         try:
             # Optional chat context for progress updates
             if chat_id:
