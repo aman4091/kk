@@ -35,6 +35,7 @@ else:
 
 from supabase_client import SupabaseClient
 from gdrive_manager import GDriveImageManager
+from video_queue_manager import VideoQueueManager
 from f5_tts.api import F5TTS
 
 
@@ -61,6 +62,7 @@ class AudioWorker:
         print("🔄 Initializing worker components...", flush=True)
         self.supabase = SupabaseClient()
         self.gdrive = GDriveImageManager()
+        self.video_queue_manager = VideoQueueManager(self.supabase, self.gdrive)
 
         # Initialize F5-TTS model
         print("🔄 Loading F5-TTS model...", flush=True)
@@ -552,6 +554,82 @@ class AudioWorker:
             print(f"❌ Error getting organized folder: {e}")
             return self.output_folder_id
 
+    async def create_video_job_after_audio(self, job, audio_gdrive_id):
+        """
+        Create video job after audio is generated and uploaded
+
+        Args:
+            job: Audio job data
+            audio_gdrive_id: GDrive ID of uploaded audio
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            chat_id = job['chat_id']
+
+            # 1. Check if video is enabled for this chat
+            video_settings = self.supabase.get_video_settings(int(chat_id))
+            if not video_settings or not video_settings.get('video_enabled', False):
+                print(f"⏭️  Video disabled for chat {chat_id}, skipping video job creation")
+                return False
+
+            print(f"📹 Video enabled - creating video job...")
+
+            # 2. Get image folder and subtitle style
+            image_folder_id = video_settings.get('gdrive_image_folder_id')
+            if not image_folder_id:
+                # Try global fallback
+                global_settings = self.supabase.get_video_settings_by_chat_id('global')
+                if global_settings:
+                    image_folder_id = global_settings.get('gdrive_image_folder_id')
+
+            if not image_folder_id:
+                print(f"⚠️  No image folder configured, skipping video job")
+                return False
+
+            subtitle_style = video_settings.get('subtitle_style', '')
+
+            # 3. Fetch image from GDrive
+            print(f"🖼️  Fetching image from folder...")
+            image_path, image_file_id = self.gdrive.fetch_next_image_from_folder(image_folder_id)
+
+            if not image_path:
+                print(f"⚠️  No images available, skipping video job")
+                return False
+
+            # 4. Get global counter
+            counter = self.supabase.increment_counter()
+            print(f"🔢 Counter: {counter}")
+
+            # 5. Create video job
+            success, job_id, queue_audio_id = await self.video_queue_manager.create_video_job(
+                audio_gdrive_id=audio_gdrive_id,  # Use existing GDrive audio
+                image_path=image_path,
+                counter=counter,
+                chat_id=int(chat_id),
+                subtitle_style=subtitle_style
+            )
+
+            if success:
+                print(f"✅ Video job created: {job_id}")
+
+                # Delete image from GDrive after queuing
+                if image_file_id:
+                    self.gdrive.delete_image_from_gdrive(image_file_id)
+                    print(f"🗑️  Image deleted from GDrive")
+
+                return True
+            else:
+                print(f"❌ Failed to create video job")
+                return False
+
+        except Exception as e:
+            print(f"❌ Error creating video job: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     async def process_job(self, job):
         """
         Process an audio generation job
@@ -561,9 +639,10 @@ class AudioWorker:
         2. Generate audio with F5-TTS
         3. Upload audio to Google Drive
         4. Update daily_video_tracking (if applicable)
-        5. Send Telegram notification
-        6. Mark job completed
-        7. Cleanup temp files
+        5. Create video job (if video enabled)
+        6. Send Telegram notification
+        7. Mark job completed
+        8. Cleanup temp files
         """
         job_id = job['job_id']
         chat_id = job['chat_id']
@@ -628,7 +707,10 @@ class AudioWorker:
             # 4. Update daily_video_tracking (if applicable)
             await self.update_daily_video_tracking(job)
 
-            # 5. Send Telegram notification
+            # 5. Create video job (if video enabled)
+            await self.create_video_job_after_audio(job, audio_gdrive_id)
+
+            # 6. Send Telegram notification
             print(f"📱 Sending notification to user...")
             notification_msg = f"✅ Audio generation complete!\n\n"
             if job.get('channel_code'):
@@ -641,10 +723,10 @@ class AudioWorker:
 
             await self.send_telegram_notification(chat_id, notification_msg)
 
-            # 6. Mark job completed
+            # 7. Mark job completed
             self.mark_job_completed(job_id, audio_gdrive_id)
 
-            # 7. Cleanup temp files
+            # 8. Cleanup temp files
             try:
                 os.remove(audio_path)
                 print(f"🗑️  Cleaned up temp file: {audio_path}")
