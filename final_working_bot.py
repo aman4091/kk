@@ -951,7 +951,23 @@ class WorkingF5Bot:
                     delattr(self.f5_model, '_cached_ref_audio')
                 if hasattr(self.f5_model, '_cached_ref_text'):
                     delattr(self.f5_model, '_cached_ref_text')
-            
+
+            # CRITICAL: Sync reference audio to GDrive and database for audio worker
+            print(f"📤 Syncing reference audio to GDrive and database...")
+            try:
+                success, gdrive_id = await self.audio_queue_manager.sync_reference_audio_to_gdrive(
+                    local_path=cropped_path,
+                    chat_id=str(chat_id)
+                )
+                if success:
+                    print(f"✅ Reference audio synced to GDrive: {gdrive_id}")
+                else:
+                    print(f"⚠️ Failed to sync reference audio to GDrive")
+            except Exception as sync_error:
+                print(f"❌ Reference audio sync error: {sync_error}")
+                import traceback
+                traceback.print_exc()
+
             print(f"✅ Reference audio updated successfully!")
             
             await context.bot.send_message(
@@ -5175,7 +5191,13 @@ class WorkingF5Bot:
 
             # Generate audio (existing code)
             chat_id = query.message.chat.id
-            success, output_files = await self.generate_audio_f5(script_text, chat_id)
+            success, output_files = await self.generate_audio_f5(
+                script_text,
+                chat_id,
+                channel_code=channel_code,
+                video_number=video_num,
+                date=target_date.strftime('%Y-%m-%d')
+            )
 
             if not success:
                 await context.bot.send_message(chat_id, f"❌ Audio generation failed")
@@ -6322,7 +6344,7 @@ class WorkingF5Bot:
             except Exception as _e:
                 pass
     
-    async def generate_audio_f5(self, script_text, chat_id=None, input_filename=None, channel_shortform=None, audio_counter=None):
+    async def generate_audio_f5(self, script_text, chat_id=None, input_filename=None, channel_shortform=None, audio_counter=None, channel_code=None, video_number=None, date=None):
         """REDIRECTED TO AUDIO QUEUE - Audio generation now happens on Vastai worker"""
         try:
             print(f"🎙️  Audio queue mode - creating job...")
@@ -6334,6 +6356,9 @@ class WorkingF5Bot:
                 chat_id=chat_id,
                 audio_counter=audio_counter,
                 channel_shortform=channel_shortform,
+                channel_code=channel_code,
+                video_number=video_number,
+                date=date,
                 priority=0
             )
 
