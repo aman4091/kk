@@ -7861,11 +7861,20 @@ async def async_main():
     # Bot instance
     bot_instance = WorkingF5Bot()
 
-    if not bot_instance.f5_model:
-        print("❌ F5-TTS initialization failed! Check installation.")
-        return
+    # F5-TTS check disabled - we use audio queue now
+    # if not bot_instance.f5_model:
+    #     print("❌ F5-TTS initialization failed! Check installation.")
+    #     return
 
-    print("✅ Bot fully initialized and ready!")
+    if bot_instance.f5_model:
+        print("✅ Bot fully initialized with F5-TTS!")
+    else:
+        print("✅ Bot fully initialized in QUEUE MODE (F5-TTS on Vastai worker)!")
+
+    # Check if audio queue manager is available
+    if not bot_instance.audio_queue_manager:
+        print("⚠️  Audio queue manager not initialized - audio generation will fail!")
+        print("   Make sure SUPABASE credentials are set in .env")
 
     # Display channel configuration
     print("\n" + "="*50)
