@@ -5321,6 +5321,12 @@ class WorkingF5Bot:
                 if organized_folder_id:
                     print(f"✅ Script uploaded to organized folder: {organized_folder_id}")
                     context.user_data['organized_folder_id'] = organized_folder_id
+
+                    # Update tracking with organized_folder_id
+                    self.supabase.update_video_tracking(tracking_id, {
+                        'organized_folder_id': organized_folder_id
+                    })
+                    print(f"✅ Updated tracking with organized_folder_id")
             except Exception as e:
                 print(f"⚠️ Failed to create organized folder: {e}")
                 # Non-critical, continue anyway
