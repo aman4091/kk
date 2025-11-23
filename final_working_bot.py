@@ -5135,7 +5135,7 @@ class WorkingF5Bot:
             Folder ID of video_X folder or None
         """
         try:
-            from googleapiclient.http import MediaFileUpload
+            from googleapiclient.http import MediaIoBaseUpload
             import io
 
             # Get parent organized folder from env
@@ -5209,7 +5209,7 @@ class WorkingF5Bot:
             if script_results.get('files'):
                 # Update existing script
                 script_id = script_results['files'][0]['id']
-                media = MediaFileUpload(
+                media = MediaIoBaseUpload(
                     io.BytesIO(script_content),
                     mimetype='text/plain',
                     resumable=True
@@ -5226,7 +5226,7 @@ class WorkingF5Bot:
                     'parents': [video_folder_id],
                     'mimeType': 'text/plain'
                 }
-                media = MediaFileUpload(
+                media = MediaIoBaseUpload(
                     io.BytesIO(script_content),
                     mimetype='text/plain',
                     resumable=True
