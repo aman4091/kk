@@ -5119,6 +5119,133 @@ class WorkingF5Bot:
             traceback.print_exc()
             await update.message.reply_text(f"❌ Error: {str(e)}")
 
+    async def _create_and_upload_to_organized_folder(
+        self, date: str, channel_code: str, video_number: int, script_text: str
+    ) -> str:
+        """
+        Create organized folder structure and upload script
+
+        Args:
+            date: Date string (YYYY-MM-DD)
+            channel_code: Channel code (BI, ANU, etc.)
+            video_number: Video number (1-4)
+            script_text: Script content
+
+        Returns:
+            Folder ID of video_X folder or None
+        """
+        try:
+            from googleapiclient.http import MediaFileUpload
+            import io
+
+            # Get parent organized folder from env
+            parent_folder_id = os.getenv("GDRIVE_ORGANIZED_PARENT_FOLDER")
+            if not parent_folder_id:
+                print("⚠️ GDRIVE_ORGANIZED_PARENT_FOLDER not set")
+                return None
+
+            service = self.gdrive_manager.service
+
+            # 1. Find or create date folder (YYYY-MM-DD)
+            date_query = f"name='{date}' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            date_results = service.files().list(q=date_query, fields='files(id, name)').execute()
+
+            if date_results.get('files'):
+                date_folder_id = date_results['files'][0]['id']
+                print(f"📁 Found date folder: {date}")
+            else:
+                date_metadata = {
+                    'name': date,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [parent_folder_id]
+                }
+                date_folder = service.files().create(body=date_metadata, fields='id').execute()
+                date_folder_id = date_folder['id']
+                print(f"📁 Created date folder: {date}")
+
+            # 2. Find or create channel folder
+            channel_query = f"name='{channel_code}' and '{date_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            channel_results = service.files().list(q=channel_query, fields='files(id, name)').execute()
+
+            if channel_results.get('files'):
+                channel_folder_id = channel_results['files'][0]['id']
+                print(f"📁 Found channel folder: {channel_code}")
+            else:
+                channel_metadata = {
+                    'name': channel_code,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [date_folder_id]
+                }
+                channel_folder = service.files().create(body=channel_metadata, fields='id').execute()
+                channel_folder_id = channel_folder['id']
+                print(f"📁 Created channel folder: {channel_code}")
+
+            # 3. Find or create video_X folder
+            video_folder_name = f"video_{video_number}"
+            video_query = f"name='{video_folder_name}' and '{channel_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            video_results = service.files().list(q=video_query, fields='files(id, name)').execute()
+
+            if video_results.get('files'):
+                video_folder_id = video_results['files'][0]['id']
+                print(f"📁 Found video folder: {video_folder_name}")
+            else:
+                video_metadata = {
+                    'name': video_folder_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [channel_folder_id]
+                }
+                video_folder = service.files().create(body=video_metadata, fields='id').execute()
+                video_folder_id = video_folder['id']
+                print(f"📁 Created video folder: {video_folder_name}")
+
+            # 4. Upload script.txt to video_X folder
+            script_content = script_text.encode('utf-8')
+            script_buffer = io.BytesIO(script_content)
+
+            # Check if script already exists
+            script_query = f"name='script.txt' and '{video_folder_id}' in parents and trashed=false"
+            script_results = service.files().list(q=script_query, fields='files(id)').execute()
+
+            if script_results.get('files'):
+                # Update existing script
+                script_id = script_results['files'][0]['id']
+                media = MediaFileUpload(
+                    io.BytesIO(script_content),
+                    mimetype='text/plain',
+                    resumable=True
+                )
+                service.files().update(
+                    fileId=script_id,
+                    media_body=media
+                ).execute()
+                print(f"📝 Updated script.txt in {video_folder_name}")
+            else:
+                # Create new script
+                script_metadata = {
+                    'name': 'script.txt',
+                    'parents': [video_folder_id],
+                    'mimeType': 'text/plain'
+                }
+                media = MediaFileUpload(
+                    io.BytesIO(script_content),
+                    mimetype='text/plain',
+                    resumable=True
+                )
+                service.files().create(
+                    body=script_metadata,
+                    media_body=media,
+                    fields='id'
+                ).execute()
+                print(f"📝 Uploaded script.txt to {video_folder_name}")
+
+            return video_folder_id
+
+        except Exception as e:
+            print(f"❌ Error creating organized folder: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     async def handle_channel_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Handle channel selection from inline keyboard
@@ -5181,6 +5308,22 @@ class WorkingF5Bot:
             context.user_data['current_channel'] = channel_code
             context.user_data['current_video_num'] = video_num
             context.user_data['current_date'] = target_date
+
+            # Create organized folder structure and upload script
+            try:
+                print(f"📁 Creating organized folder structure...")
+                organized_folder_id = await self._create_and_upload_to_organized_folder(
+                    target_date.strftime('%Y-%m-%d'),
+                    channel_code,
+                    video_num,
+                    script_text
+                )
+                if organized_folder_id:
+                    print(f"✅ Script uploaded to organized folder: {organized_folder_id}")
+                    context.user_data['organized_folder_id'] = organized_folder_id
+            except Exception as e:
+                print(f"⚠️ Failed to create organized folder: {e}")
+                # Non-critical, continue anyway
 
             await query.edit_message_text(
                 f"✅ Processing **{channel_code} video {video_num}**\n"

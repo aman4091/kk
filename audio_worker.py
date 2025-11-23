@@ -538,21 +538,57 @@ class AudioWorker:
     def get_organized_folder_path(self, date: str, channel_code: str, video_number: int) -> str:
         """
         Get the organized folder ID for daily video
+        Searches for: Parent/YYYY-MM-DD/CHANNEL_CODE/video_X/
 
         Returns:
-            Folder ID where audio should be uploaded
+            Folder ID where audio should be uploaded, or None if not found
         """
         try:
-            # Format: Parent/YYYY-MM-DD/CHANNEL_CODE/video_X/
-            # We need to find or create this structure
+            if not self.parent_organized_folder_id:
+                print(f"⚠️ Parent organized folder not configured")
+                return None
 
-            # For simplicity, let's just return the parent folder for now
-            # The full folder structure creation can be added later if needed
-            return self.parent_organized_folder_id or self.output_folder_id
+            service = self.gdrive.service
+
+            # 1. Find date folder
+            date_query = f"name='{date}' and '{self.parent_organized_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            date_results = service.files().list(q=date_query, fields='files(id, name)').execute()
+
+            if not date_results.get('files'):
+                print(f"⚠️ Date folder not found: {date}")
+                return None
+
+            date_folder_id = date_results['files'][0]['id']
+
+            # 2. Find channel folder
+            channel_query = f"name='{channel_code}' and '{date_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            channel_results = service.files().list(q=channel_query, fields='files(id, name)').execute()
+
+            if not channel_results.get('files'):
+                print(f"⚠️ Channel folder not found: {channel_code}")
+                return None
+
+            channel_folder_id = channel_results['files'][0]['id']
+
+            # 3. Find video_X folder
+            video_folder_name = f"video_{video_number}"
+            video_query = f"name='{video_folder_name}' and '{channel_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            video_results = service.files().list(q=video_query, fields='files(id, name)').execute()
+
+            if not video_results.get('files'):
+                print(f"⚠️ Video folder not found: {video_folder_name}")
+                return None
+
+            video_folder_id = video_results['files'][0]['id']
+            print(f"✅ Found organized folder: {date}/{channel_code}/{video_folder_name}")
+
+            return video_folder_id
 
         except Exception as e:
             print(f"❌ Error getting organized folder: {e}")
-            return self.output_folder_id
+            import traceback
+            traceback.print_exc()
+            return None
 
     async def create_video_job_after_audio(self, job, audio_gdrive_id):
         """
@@ -677,32 +713,57 @@ class AudioWorker:
             # 3. Upload to Google Drive
             print(f"📤 Uploading audio to Google Drive...")
 
-            # Determine target folder and filename
-            if job.get('channel_code') and job.get('video_number'):
-                # Daily video - upload to organized folder
-                target_folder_id = self.get_organized_folder_path(
-                    job.get('date'),
-                    job.get('channel_code'),
-                    job.get('video_number')
-                )
-                filename = "audio.wav"
-            else:
-                # Other audio - upload to output folder
-                target_folder_id = self.output_folder_id
-                audio_counter = job.get('audio_counter', job_id[:8])
-                filename = f"{audio_counter}_raw.wav"
+            # DUAL UPLOAD STRATEGY:
+            # 1. Always upload to output folder (for video worker queue)
+            # 2. If daily video, ALSO upload to organized folder (permanent storage)
+
+            # Upload #1: Output folder (for video worker)
+            audio_counter = job.get('audio_counter', job_id[:8])
+            queue_filename = f"{audio_counter}_raw.wav"
 
             audio_gdrive_id = self.upload_audio_to_gdrive(
                 audio_path,
-                target_folder_id,
-                filename
+                self.output_folder_id,
+                queue_filename
             )
 
             if not audio_gdrive_id:
-                raise Exception("Failed to upload audio to GDrive")
+                raise Exception("Failed to upload audio to queue folder")
 
-            # Store gdrive_id in job for later use
+            print(f"✅ Audio uploaded to queue folder: {audio_gdrive_id}")
+
+            # Store gdrive_id in job for later use (video worker will use this)
             job['audio_gdrive_id'] = audio_gdrive_id
+
+            # Upload #2: Organized folder (if daily video)
+            if job.get('channel_code') and job.get('video_number'):
+                try:
+                    print(f"📁 Also uploading to organized folder...")
+                    organized_folder_id = self.get_organized_folder_path(
+                        job.get('date'),
+                        job.get('channel_code'),
+                        job.get('video_number')
+                    )
+
+                    if organized_folder_id:
+                        organized_audio_id = self.upload_audio_to_gdrive(
+                            audio_path,
+                            organized_folder_id,
+                            "audio.wav"
+                        )
+
+                        if organized_audio_id:
+                            print(f"✅ Audio also uploaded to organized folder: {organized_audio_id}")
+                            # Store organized audio ID for tracking
+                            job['organized_audio_gdrive_id'] = organized_audio_id
+                        else:
+                            print(f"⚠️ Failed to upload to organized folder (non-critical)")
+                    else:
+                        print(f"⚠️ Organized folder not found (non-critical)")
+
+                except Exception as e:
+                    print(f"⚠️ Organized folder upload failed (non-critical): {e}")
+                    # Continue anyway - queue upload succeeded
 
             # 4. Update daily_video_tracking (if applicable)
             await self.update_daily_video_tracking(job)
