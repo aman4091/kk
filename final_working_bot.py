@@ -709,7 +709,7 @@ class WorkingF5Bot:
                 'no_warnings': False,
                 'extract_flat': False,
                 # Updated headers to bypass YouTube's 403 blocks (Oct 2025)
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 'referer': 'https://www.youtube.com/',
                 'http_headers': {
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -732,13 +732,20 @@ class WorkingF5Bot:
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['android', 'web'],
-                        'player_skip': ['webpage', 'configs'],
+                        'player_skip': ['webpage'],
+                        'skip': ['dash', 'hls'],
                     }
                 },
                 # Sleep between retries
                 'sleep_interval': 1,
                 'max_sleep_interval': 5,
             }
+
+            # Add cookies if available (helps bypass YouTube blocks)
+            cookies_file = 'youtube_cookies.txt'
+            if os.path.exists(cookies_file):
+                ydl_opts['cookiefile'] = cookies_file
+                print(f"🍪 Using cookies from: {cookies_file}")
             
             print(f"📥 Downloading audio from: {youtube_url}")
             

@@ -19,7 +19,11 @@
       "WebFetch(domain:chatgpt.com)",
       "Bash(git check-ignore:*)",
       "Bash(git checkout:*)",
-      "Bash(gh secret list:*)"
+      "Bash(gh secret list:*)",
+      "Bash(yt-dlp:*)",
+      "Bash(pip install:*)",
+      "Bash(rm:*)",
+      "Bash(git config:*)"
     ],
     "deny": [],
     "ask": []
